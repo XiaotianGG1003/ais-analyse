@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIS 船舶轨迹分析系统</title>
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS/JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Draw -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <!-- Element Plus Icons (SVG inline) -->
+    <style>
+        /* TailwindCSS Config */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        navy: {
+                            900: '#0a0f1e',
+                            800: '#111827',
+                            700: '#1a2332',
+                            600: '#243044',
+                            500: '#2d3c56',
+                        },
+                        ocean: {
+                            500: '#0EA5E9',
+                            400: '#38BDF8',
+                            300: '#7DD3FC',
+                            600: '#0284C7',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #0a0f1e;
+            color: #e2e8f0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Leaflet overrides for dark theme */
+        .leaflet-container { background: #0a1628 !important; }
+        .leaflet-control-zoom a {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+        }
+        .leaflet-control-zoom a:hover { background: #334155 !important; }
+        .leaflet-control-attribution { display: none !important; }
+
+        /* Panel transitions */
+        .panel-transition { transition: width 0.3s ease, opacity 0.3s ease, transform 0.3s ease; }
+
+        /* Glow effects */
+        .glow-blue { box-shadow: 0 0 20px rgba(14, 165, 233, 0.15); }
+        .card-hover:hover {
+            background: #243044;
+            transform: translateY(-1px);
+            transition: all 0.2s ease;
+        }
+        .card-hover { transition: all 0.2s ease; }
+
+        /* Ship marker pulse */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(2.5); opacity: 0; }
+        }
+        .ship-pulse {
+            animation: pulse-ring 2s ease-out infinite;
+        }
+
+        /* Stat number animation */
+        @keyframes countUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .stat-animate { animation: countUp 0.4s ease-out forwards; }
+
+        /* Active tab indicator */
+        .tab-active {
+            color: #0EA5E9;
+            border-bottom: 2px solid #0EA5E9;
+        }
+
+        /* Custom toggle */
+        .toggle-switch { position: relative; width: 36px; height: 20px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute; inset: 0; background: #334155; border-radius: 10px;
+            cursor: pointer; transition: 0.3s;
+        }
+        .toggle-slider::before {
+            content: ''; position: absolute; width: 16px; height: 16px;
+            left: 2px; bottom: 2px; background: #94a3b8; border-radius: 50%;
+            transition: 0.3s;
+        }
+        .toggle-switch input:checked + .toggle-slider { background: #0EA5E9; }
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(16px); background: white;
+        }
+
+        /* Leaflet popup dark */
+        .leaflet-popup-content-wrapper {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-radius: 8px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+        }
+        .leaflet-popup-tip { background: #1e293b !important; }
+        .leaflet-popup-close-button { color: #94a3b8 !important; }
+
+        /* Ship icon - rotatable */
+        .ship-icon {
+            width: 24px; height: 24px;
+            transition: transform 0.5s ease;
+        }
+
+        /* Prediction dash line */
+        .prediction-line {
+            stroke-dasharray: 8, 6;
+            animation: dash 1s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -14; }
+        }
+
+        /* Area highlight */
+        .area-polygon {
+            fill: rgba(14, 165, 233, 0.1);
+            stroke: #0EA5E9;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-flex; align-items: center; padding: 2px 8px;
+            border-radius: 9999px; font-size: 11px; font-weight: 500;
+        }
+
+        /* Input styles */
+        input[type="text"], input[type="number"], input[type="datetime-local"], select {
+            background: #1a2332;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus {
+            border-color: #0EA5E9;
+            box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.15);
+        }
+        input::placeholder { color: #64748b; }
+
+        /* Button styles */
+        .btn-primary {
+            background: linear-gradient(135deg, #0EA5E9, #0284C7);
+            color: white; border: none; padding: 8px 16px;
+            border-radius: 6px; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .btn-secondary {
+            background: #243044; color: #e2e8f0; border: 1px solid #334155;
+            padding: 8px 16px; border-radius: 6px; font-size: 13px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-secondary:hover { background: #2d3c56; border-color: #475569; }
+        .btn-icon {
+            background: transparent; border: 1px solid #334155;
+            color: #94a3b8; width: 32px; height: 32px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-icon:hover { background: #243044; color: #e2e8f0; border-color: #475569; }
+
+        .leaflet-draw-toolbar a { background-color: #1e293b !important; color: #e2e8f0 !important; border-color: #334155 !important; }
+        .leaflet-draw-actions a { background-color: #243044 !important; color: #e2e8f0 !important; }
+    </style>
+</head>
+<body class="dark">
+
+<!-- ========== MAIN LAYOUT ========== -->
+<div id="app" class="flex flex-col h-screen">
+
+    <!-- ===== TOP NAVBAR ===== -->
+    <header class="flex items-center justify-between px-4 h-12 bg-navy-800 border-b border-slate-700/50 flex-shrink-0 z-50" style="background:#111827;">
+        <div class="flex items-center gap-3">
+            <!-- Logo -->
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-ocean-500 to-blue-600 flex items-center justify-center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2-2V8l4-6h8l4 6v10a2 2 0 0 0 2 2"/><path d="M12 4v8"/><path d="M2 12h20"/><path d="M2 20h20"/></svg>
+                </div>
+                <div>
+                    <span class="text-sm font-semibold text-white tracking-wide">AIS 轨迹分析系统</span>
+                    <span class="text-[10px] text-slate-500 ml-2 font-mono">v1.0</span>
+                </div>
+            </div>
+            <!-- Separator -->
+            <div class="w-px h-6 bg-slate-700 mx-2"></div>
+            <!-- Status indicator -->
+            <div class="flex items-center gap-1.5">
+                <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span class="text-xs text-slate-400">系统在线</span>
+            </div>
+        </div>
+
+        <!-- Center: Global Search -->
+        <div class="flex-1 max-w-md mx-8">
+            <div class="relative">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="globalSearch" placeholder="搜索船舶 MMSI / 船名..." class="!pl-9 !py-1.5 text-sm !bg-navy-700" style="background:#1a2332;" oninput="handleGlobalSearch(this.value)">
+            </div>
+        </div>
+
+        <!-- Right -->
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-500 font-mono" id="currentTime"></span>
+            <button class="btn-icon" title="设置" onclick="toggleSettings()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-ocean-400 to-indigo-500 flex items-center justify-center text-xs font-bold text-white cursor-pointer" title="管理员">A</div>
+        </div>
+    </header>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- ===== LEFT PANEL ===== -->
+        <aside id="leftPanel" class="panel-transition flex-shrink-0 overflow-y-auto border-r border-slate-700/50 flex flex-col" style="width:320px; background:#111827;">
+
+            <!-- Panel Header -->
+            <div class="px-4 py-3 border-b border-slate-700/30 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">查询与控制</span>
+                <button class="btn-icon !w-6 !h-6" onclick="toggleLeftPanel()" title="折叠面板">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+            </div>
+
+            <!-- Ship Search -->
+            <div class="px-4 py-3 border-b border-slate-700/20">
+                <label class="text-xs text-slate-500 font-medium mb-2 block">船舶查询</label>
+                <div class="flex gap-2">
+                    <div class="relative flex-1">
+                        <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="shipSearch" placeholder="MMSI / 船名" class="!pl-8 !py-1.5 text-xs" oninput="searchShips(this.value)">
+                    </div>
+                    <button class="btn-primary !px-3 !py-1.5 text-xs" onclick="searchShips(document.getElementById('shipSearch').value)">搜索</button>
+                </div>
+            </div>
+
+            <!-- Time Range -->
+            <div class="px-4 py-3 border-b border-slate-700/20">
+                <label class="text-xs text-slate-500 font-medium mb-2 block">时间范围</label>
+                <!-- Quick select -->
+                <div class="flex gap-1.5 mb-2 flex-wrap">
+                    <button class="text-[11px] px-2.5 py-1 rounded bg-ocean-500/20 text-ocean-400 border border-ocean-500/30 hover:bg-ocean-500/30 transition" onclick="setQuickTime('1h')">1小时</button>
+                    <button class="text-[11px] px-2.5 py-1 rounded bg-slate-700/50 text-slate-400 border border-slate-600/30 hover:bg-slate-600/50 transition" onclick="setQuickTime('6h')">6小时</button>
+                    <button class="text-[11px] px-2.5 py-1 rounded bg-slate-700/50 text-slate-400 border border-slate-600/30 hover:bg-slate-600/50 transition" onclick="setQuickTime('24h')">24小时</button>
+                    <button class="text-[11px] px-2.5 py-1 rounded bg-slate-700/50 text-slate-400 border border-slate-600/30 hover:bg-slate-600/50 transition" onclick="setQuickTime('7d')">7天</button>
+                </div>
+                <div class="space-y-2">
+                    <div>
+                        <span class="text-[10px] text-slate-500 mb-1 block">起始时间</span>
+                        <input type="datetime-local" id="startTime" value="2026-03-12T00:00" class="text-xs !py-1.5">
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-500 mb-1 block">结束时间</span>
+                        <input type="datetime-local" id="endTime" value="2026-03-12T23:59" class="text-xs !py-1.5">
+                    </div>
+                </div>
+                <button class="btn-primary w-full mt-2 text-xs !py-1.5" onclick="queryTrack()">
+                    <span class="flex items-center justify-center gap-1.5">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        查询轨迹
+                    </span>
+                </button>
+            </div>
+
+            <!-- Tools -->
+            <div class="px-4 py-3 border-b border-slate-700/20">
+                <label class="text-xs text-slate-500 font-medium mb-2 block">分析工具</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button class="btn-secondary text-xs !py-2 flex items-center justify-center gap-1.5" onclick="toggleAreaDraw()" id="btnAreaDraw">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                        区域检测
+                    </button>
+                    <button class="btn-secondary text-xs !py-2 flex items-center justify-center gap-1.5" onclick="openDistanceCalc()">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21.54 15H17a2 2 0 0 0-2 2v4.54"/><path d="M7 3.34V5a3 3 0 0 0 3 3v0a2 2 0 0 1 2 2v0c0 1.1.9 2 2 2v0a2 2 0 0 0 2-2v0c0-1.1.9-2 2-2h3.17"/><path d="M11 21.95V18a2 2 0 0 0-2-2v0a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05"/><circle cx="12" cy="12" r="10"/></svg>
+                        两船距离
+                    </button>
+                    <button class="btn-secondary text-xs !py-2 flex items-center justify-center gap-1.5" onclick="startPrediction()">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                        轨迹预测
+                    </button>
+                    <button class="btn-secondary text-xs !py-2 flex items-center justify-center gap-1.5" onclick="exportData()">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        导出数据
+                    </button>
+                </div>
+            </div>
+
+            <!-- Distance Calculator (hidden by default) -->
+            <div id="distanceCalcPanel" class="px-4 py-3 border-b border-slate-700/20 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-xs text-slate-500 font-medium">两船距离计算</label>
+                    <button class="text-slate-500 hover:text-slate-300" onclick="closeDistanceCalc()">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="space-y-2">
+                    <div>
+                        <span class="text-[10px] text-slate-500 mb-1 block">船舶 A (MMSI)</span>
+                        <select id="ship1Select" class="text-xs !py-1.5" onchange="calcDistance()">
+                            <option value="">选择船舶...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-500 mb-1 block">船舶 B (MMSI)</span>
+                        <select id="ship2Select" class="text-xs !py-1.5" onchange="calcDistance()">
+                            <option value="">选择船舶...</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary w-full text-xs !py-1.5" onclick="calcDistance()">计算距离</button>
+                </div>
+            </div>
+
+            <!-- Ship List -->
+            <div class="flex-1 overflow-y-auto px-2 py-2">
+                <div class="flex items-center justify-between px-2 mb-2">
+                    <span class="text-[11px] text-slate-500 font-medium">船舶列表</span>
+                    <span class="text-[10px] text-slate-600 font-mono" id="shipCount">8 艘</span>
+                </div>
+                <div id="shipList" class="space-y-1">
+                    <!-- Ships will be rendered here -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- Left Panel Collapsed Toggle -->
+        <button id="leftToggle" class="hidden flex-shrink-0 w-6 flex items-center justify-center bg-navy-800 border-r border-slate-700/50 hover:bg-navy-700 transition cursor-pointer" style="background:#111827" onclick="toggleLeftPanel()">
+            <svg width="14" height="14" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+
+        <!-- ===== MAP AREA ===== -->
+        <main class="flex-1 relative">
+            <div id="map" class="w-full h-full"></div>
+
+            <!-- Map Overlay: Top info bar -->
+            <div class="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3">
+                <div class="bg-navy-800/90 backdrop-blur-sm rounded-lg px-4 py-2 border border-slate-700/50 flex items-center gap-4" style="background:rgba(17,24,39,0.92);">
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+                        <span class="text-[11px] text-slate-300">在线船舶</span>
+                        <span class="text-[11px] font-mono font-semibold text-white" id="onlineCount">8</span>
+                    </div>
+                    <div class="w-px h-4 bg-slate-700"></div>
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-ocean-400"></div>
+                        <span class="text-[11px] text-slate-300">轨迹显示</span>
+                        <span class="text-[11px] font-mono font-semibold text-white" id="trackCount">0</span>
+                    </div>
+                    <div class="w-px h-4 bg-slate-700"></div>
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-amber-400"></div>
+                        <span class="text-[11px] text-slate-300">预警</span>
+                        <span class="text-[11px] font-mono font-semibold text-amber-400">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Overlay: Layer controls -->
+            <div class="absolute top-3 right-3 z-[1000] flex flex-col gap-1.5">
+                <button class="w-8 h-8 rounded-lg bg-navy-800/90 backdrop-blur-sm border border-slate-700/50 flex items-center justify-center text-slate-400 hover:text-white hover:bg-navy-700 transition" style="background:rgba(17,24,39,0.92);" onclick="map.zoomIn()" title="放大">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <button class="w-8 h-8 rounded-lg bg-navy-800/90 backdrop-blur-sm border border-slate-700/50 flex items-center justify-center text-slate-400 hover:text-white hover:bg-navy-700 transition" style="background:rgba(17,24,39,0.92);" onclick="map.zoomOut()" title="缩小">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <div class="w-8 h-px bg-slate-700/50"></div>
+                <button class="w-8 h-8 rounded-lg bg-navy-800/90 backdrop-blur-sm border border-slate-700/50 flex items-center justify-center text-slate-400 hover:text-white hover:bg-navy-700 transition" style="background:rgba(17,24,39,0.92);" onclick="resetMapView()" title="重置视图">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                </button>
+                <button class="w-8 h-8 rounded-lg bg-navy-800/90 backdrop-blur-sm border border-slate-700/50 flex items-center justify-center text-slate-400 hover:text-white hover:bg-navy-700 transition" style="background:rgba(17,24,39,0.92);" onclick="toggleHeatmap()" title="图层切换">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Scale bar -->
+            <div class="absolute bottom-3 left-3 z-[1000]">
+                <div class="bg-navy-800/80 backdrop-blur-sm rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-500 font-mono" style="background:rgba(17,24,39,0.8);">
+                    <span id="mapZoom">缩放: 6</span> · <span id="mapCenter">30.5°N, 122.0°E</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel Collapsed Toggle -->
+        <button id="rightToggle" class="hidden flex-shrink-0 w-6 flex items-center justify-center bg-navy-800 border-l border-slate-700/50 hover:bg-navy-700 transition cursor-pointer" style="background:#111827" onclick="toggleRightPanel()">
+            <svg width="14" height="14" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+
+        <!-- ===== RIGHT PANEL ===== -->
+        <aside id="rightPanel" class="panel-transition flex-shrink-0 overflow-y-auto border-l border-slate-700/50 flex flex-col" style="width:360px; background:#111827;">
+
+            <!-- Panel Header -->
+            <div class="px-4 py-3 border-b border-slate-700/30 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">数据分析</span>
+                <button class="btn-icon !w-6 !h-6" onclick="toggleRightPanel()" title="折叠面板">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex border-b border-slate-700/30 px-4">
+                <button class="text-xs py-2.5 px-3 tab-active" onclick="switchTab('detail')" id="tab-detail">船舶详情</button>
+                <button class="text-xs py-2.5 px-3 text-slate-500 hover:text-slate-300 transition" onclick="switchTab('stats')" id="tab-stats">航行统计</button>
+                <button class="text-xs py-2.5 px-3 text-slate-500 hover:text-slate-300 transition" onclick="switchTab('analysis')" id="tab-analysis">分析结果</button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="flex-1 overflow-y-auto">
+
+                <!-- Detail Tab -->
+                <div id="content-detail" class="px-4 py-3">
+                    <!-- Empty state -->
+                    <div id="emptyState" class="flex flex-col items-center justify-center py-16 text-center">
+                        <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                            <svg width="28" height="28" fill="none" stroke="#475569" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2-2V8l4-6h8l4 6v10a2 2 0 0 0 2 2"/><path d="M12 4v8"/><path d="M2 12h20"/></svg>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-1">未选择船舶</p>
+                        <p class="text-xs text-slate-600">请在左侧面板搜索或点击地图上的船舶图标</p>
+                    </div>
+
+                    <!-- Ship Detail (hidden initially) -->
+                    <div id="shipDetail" class="hidden space-y-3">
+                        <!-- Header Card -->
+                        <div class="rounded-lg bg-gradient-to-r from-ocean-500/10 to-indigo-500/10 border border-ocean-500/20 p-3">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <h3 class="text-base font-semibold text-white" id="detailName">-</h3>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="badge bg-ocean-500/20 text-ocean-400 border border-ocean-500/30" id="detailType">货船</span>
+                                        <span class="text-[11px] text-slate-400 font-mono" id="detailMMSI">MMSI: -</span>
+                                    </div>
+                                </div>
+                                <div class="w-10 h-10 rounded-lg bg-ocean-500/20 flex items-center justify-center">
+                                    <svg width="22" height="22" fill="none" stroke="#0EA5E9" stroke-width="1.5" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2-2V8l4-6h8l4 6v10a2 2 0 0 0 2 2"/><path d="M12 4v8"/><path d="M2 12h20"/></svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Info Grid -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">IMO</span>
+                                <span class="text-xs font-mono text-slate-200" id="detailIMO">-</span>
+                            </div>
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">呼号</span>
+                                <span class="text-xs font-mono text-slate-200" id="detailCallSign">-</span>
+                            </div>
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">长度</span>
+                                <span class="text-xs font-mono text-slate-200"><span id="detailLength">-</span> m</span>
+                            </div>
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">宽度</span>
+                                <span class="text-xs font-mono text-slate-200"><span id="detailWidth">-</span> m</span>
+                            </div>
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">吃水</span>
+                                <span class="text-xs font-mono text-slate-200"><span id="detailDraft">-</span> m</span>
+                            </div>
+                            <div class="rounded-lg bg-slate-800/50 p-2.5">
+                                <span class="text-[10px] text-slate-500 block">状态</span>
+                                <span class="text-xs text-emerald-400" id="detailStatus">航行中</span>
+                            </div>
+                        </div>
+
+                        <!-- Current Position -->
+                        <div class="rounded-lg bg-slate-800/50 p-3">
+                            <h4 class="text-[11px] text-slate-500 font-medium mb-2">当前位置</h4>
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                                <div class="flex justify-between">
+                                    <span class="text-[11px] text-slate-500">经度</span>
+                                    <span class="text-[11px] font-mono text-slate-200" id="detailLon">-</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-[11px] text-slate-500">纬度</span>
+                                    <span class="text-[11px] font-mono text-slate-200" id="detailLat">-</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-[11px] text-slate-500">航速</span>
+                                    <span class="text-[11px] font-mono text-ocean-400" id="detailSOG">- kn</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-[11px] text-slate-500">航向</span>
+                                    <span class="text-[11px] font-mono text-slate-200" id="detailCOG">-°</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Last Update -->
+                        <div class="flex items-center justify-between bg-slate-800/30 rounded-lg px-3 py-2">
+                            <span class="text-[10px] text-slate-500">最后更新</span>
+                            <span class="text-[10px] font-mono text-slate-400" id="detailLastUpdate">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Tab -->
+                <div id="content-stats" class="px-4 py-3 hidden">
+                    <div id="statsEmpty" class="flex flex-col items-center justify-center py-16 text-center">
+                        <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                            <svg width="28" height="28" fill="none" stroke="#475569" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-1">暂无统计数据</p>
+                        <p class="text-xs text-slate-600">请先查询船舶轨迹</p>
+                    </div>
+
+                    <div id="statsContent" class="hidden space-y-3">
+                        <!-- Stats Cards -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="rounded-xl bg-gradient-to-br from-ocean-500/10 to-ocean-500/5 border border-ocean-500/20 p-3">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <svg width="13" height="13" fill="none" stroke="#0EA5E9" viewBox="0 0 24 24"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+                                    <span class="text-[10px] text-ocean-400">总距离</span>
+                                </div>
+                                <div class="text-lg font-bold font-mono text-white stat-animate" id="statDistance">156.8</div>
+                                <div class="text-[10px] text-slate-500">km</div>
+                            </div>
+                            <div class="rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 p-3">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <svg width="13" height="13" fill="none" stroke="#10B981" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    <span class="text-[10px] text-emerald-400">航行时间</span>
+                                </div>
+                                <div class="text-lg font-bold font-mono text-white stat-animate" id="statDuration">12.5</div>
+                                <div class="text-[10px] text-slate-500">小时</div>
+                            </div>
+                            <div class="rounded-xl bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20 p-3">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <svg width="13" height="13" fill="none" stroke="#F59E0B" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                                    <span class="text-[10px] text-amber-400">最大速度</span>
+                                </div>
+                                <div class="text-lg font-bold font-mono text-white stat-animate" id="statMaxSpeed">22.3</div>
+                                <div class="text-[10px] text-slate-500">kn</div>
+                            </div>
+                            <div class="rounded-xl bg-gradient-to-br from-indigo-500/10 to-indigo-500/5 border border-indigo-500/20 p-3">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <svg width="13" height="13" fill="none" stroke="#6366F1" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg>
+                                    <span class="text-[10px] text-indigo-400">平均速度</span>
+                                </div>
+                                <div class="text-lg font-bold font-mono text-white stat-animate" id="statAvgSpeed">12.5</div>
+                                <div class="text-[10px] text-slate-500">kn</div>
+                            </div>
+                        </div>
+
+                        <!-- Speed Chart -->
+                        <div class="rounded-lg bg-slate-800/50 border border-slate-700/30 p-3">
+                            <h4 class="text-[11px] text-slate-500 font-medium mb-2">速度变化曲线</h4>
+                            <div id="speedChart" style="width:100%; height:180px;"></div>
+                        </div>
+
+                        <!-- SOG Distribution -->
+                        <div class="rounded-lg bg-slate-800/50 border border-slate-700/30 p-3">
+                            <h4 class="text-[11px] text-slate-500 font-medium mb-2">速度分布</h4>
+                            <div id="sogDistChart" style="width:100%; height:140px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Tab -->
+                <div id="content-analysis" class="px-4 py-3 hidden">
+                    <div id="analysisEmpty" class="flex flex-col items-center justify-center py-16 text-center">
+                        <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                            <svg width="28" height="28" fill="none" stroke="#475569" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-1">暂无分析结果</p>
+                        <p class="text-xs text-slate-600">请使用左侧工具进行分析操作</p>
+                    </div>
+
+                    <!-- Area Detection Result -->
+                    <div id="areaResult" class="hidden space-y-3">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                                区域检测结果
+                            </h4>
+                            <button class="text-slate-500 hover:text-slate-300" onclick="clearAreaResult()">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="rounded-lg border p-3" id="areaResultCard">
+                            <!-- Dynamic content -->
+                        </div>
+                    </div>
+
+                    <!-- Distance Result -->
+                    <div id="distanceResult" class="hidden space-y-3 mt-3">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>
+                                两船距离结果
+                            </h4>
+                            <button class="text-slate-500 hover:text-slate-300" onclick="clearDistanceResult()">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3" id="distanceResultCard">
+                            <!-- Dynamic content -->
+                        </div>
+                    </div>
+
+                    <!-- Prediction Result -->
+                    <div id="predictionResult" class="hidden space-y-3 mt-3">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>
+                                轨迹预测结果
+                            </h4>
+                            <button class="text-slate-500 hover:text-slate-300" onclick="clearPrediction()">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3" id="predictionResultCard">
+                            <!-- Dynamic content -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- ===== BOTTOM STATUS BAR ===== -->
+    <footer class="flex items-center justify-between px-4 h-7 bg-navy-800 border-t border-slate-700/50 flex-shrink-0 text-[10px] text-slate-500" style="background:#0d1320;">
+        <div class="flex items-center gap-4">
+            <span>© 2026 AIS Analysis System</span>
+            <span class="text-slate-600">|</span>
+            <span>数据库: <span class="text-emerald-500">已连接</span></span>
+            <span class="text-slate-600">|</span>
+            <span>MobilityDB <span class="text-slate-400">v1.1</span></span>
+        </div>
+        <div class="flex items-center gap-4">
+            <span>船舶总数: <span class="text-slate-300 font-mono">1,523</span></span>
+            <span class="text-slate-600">|</span>
+            <span>轨迹点: <span class="text-slate-300 font-mono">2.4M</span></span>
+            <span class="text-slate-600">|</span>
+            <span id="footerTime">2026-03-12 08:00:00</span>
+        </div>
+    </footer>
+</div>
+
+<!-- ========== NOTIFICATION TOAST ========== -->
+<div id="toast" class="fixed top-16 right-4 z-[9999] transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-navy-700 border border-slate-600/50 rounded-lg shadow-xl px-4 py-3 flex items-center gap-3 min-w-[280px]" style="background:#1e293b;">
+        <div id="toastIcon" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"></div>
+        <div>
+            <p class="text-sm font-medium text-white" id="toastTitle">通知</p>
+            <p class="text-xs text-slate-400" id="toastMsg">消息内容</p>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===================================
+// MOCK DATA — 假数据
+// ===================================
+const MOCK_SHIPS = [
+    {
+        mmsi: 413201001, vessel_name: "远洋和平号", vessel_type: 70, imo: "9811001", call_sign: "BVHP",
+        length: 366, width: 51, draft: 15.2, status: 0, cargo: 70,
+        position: { lat: 31.23, lon: 121.49, sog: 12.5, cog: 45, heading: 47 },
+        track: [
+            [121.25, 31.10], [121.28, 31.13], [121.31, 31.16], [121.34, 31.18],
+            [121.37, 31.20], [121.40, 31.22], [121.43, 31.23], [121.46, 31.24], [121.49, 31.23]
+        ],
+        color: '#0EA5E9'
+    },
+    {
+        mmsi: 413201002, vessel_name: "东方明珠", vessel_type: 60, imo: "9811002", call_sign: "BVDM",
+        length: 225, width: 32, draft: 10.5, status: 0, cargo: 60,
+        position: { lat: 30.85, lon: 122.15, sog: 15.2, cog: 120, heading: 118 },
+        track: [
+            [121.75, 31.05], [121.80, 31.00], [121.86, 30.96], [121.92, 30.92],
+            [121.98, 30.89], [122.03, 30.87], [122.09, 30.85], [122.15, 30.85]
+        ],
+        color: '#10B981'
+    },
+    {
+        mmsi: 413201003, vessel_name: "长江之星", vessel_type: 80, imo: "9811003", call_sign: "BVCZ",
+        length: 189, width: 28, draft: 8.9, status: 5, cargo: 80,
+        position: { lat: 30.62, lon: 122.08, sog: 0, cog: 0, heading: 0 },
+        track: [
+            [121.95, 30.80], [121.98, 30.75], [122.01, 30.70], [122.03, 30.66],
+            [122.05, 30.63], [122.07, 30.62], [122.08, 30.62]
+        ],
+        color: '#F59E0B'
+    },
+    {
+        mmsi: 413201004, vessel_name: "海洋探索者", vessel_type: 70, imo: "9811004", call_sign: "BVHT",
+        length: 292, width: 40, draft: 12.1, status: 0, cargo: 70,
+        position: { lat: 31.45, lon: 121.85, sog: 18.7, cog: 320, heading: 318 },
+        track: [
+            [122.20, 31.10], [122.15, 31.15], [122.10, 31.20], [122.05, 31.25],
+            [122.00, 31.30], [121.95, 31.35], [121.90, 31.40], [121.85, 31.45]
+        ],
+        color: '#8B5CF6'
+    },
+    {
+        mmsi: 413201005, vessel_name: "黄浦明珠", vessel_type: 60, imo: "9811005", call_sign: "BVHM",
+        length: 155, width: 25, draft: 7.5, status: 0, cargo: 60,
+        position: { lat: 30.95, lon: 121.60, sog: 8.3, cog: 200, heading: 198 },
+        track: [
+            [121.55, 31.15], [121.56, 31.10], [121.57, 31.05], [121.58, 31.00],
+            [121.59, 30.97], [121.60, 30.95]
+        ],
+        color: '#EC4899'
+    },
+    {
+        mmsi: 413201006, vessel_name: "蓝海巨轮", vessel_type: 70, imo: "9811006", call_sign: "BVLH",
+        length: 400, width: 58, draft: 16.0, status: 0, cargo: 71,
+        position: { lat: 31.05, lon: 122.50, sog: 20.1, cog: 85, heading: 83 },
+        track: [
+            [122.00, 31.10], [122.06, 31.09], [122.12, 31.08], [122.18, 31.07],
+            [122.24, 31.06], [122.30, 31.06], [122.38, 31.05], [122.44, 31.05], [122.50, 31.05]
+        ],
+        color: '#06B6D4'
+    },
+    {
+        mmsi: 413201007, vessel_name: "杨浦渡轮", vessel_type: 60, imo: "9811007", call_sign: "BVYP",
+        length: 68, width: 14, draft: 3.5, status: 0, cargo: 60,
+        position: { lat: 31.27, lon: 121.52, sog: 5.5, cog: 270, heading: 268 },
+        track: [
+            [121.56, 31.26], [121.55, 31.27], [121.54, 31.27], [121.53, 31.27], [121.52, 31.27]
+        ],
+        color: '#F97316'
+    },
+    {
+        mmsi: 413201008, vessel_name: "深海猎手", vessel_type: 30, imo: "9811008", call_sign: "BVSH",
+        length: 42, width: 9, draft: 4.2, status: 0, cargo: 30,
+        position: { lat: 30.70, lon: 122.35, sog: 6.8, cog: 155, heading: 153 },
+        track: [
+            [122.25, 30.82], [122.27, 30.79], [122.29, 30.77], [122.31, 30.75],
+            [122.33, 30.73], [122.35, 30.70]
+        ],
+        color: '#14B8A6'
+    }
+];
+
+const VESSEL_TYPES = {
+    30: '渔船', 60: '客船', 70: '货船', 80: '油轮', 0: '其他'
+};
+const NAV_STATUS = {
+    0: '航行中', 1: '锚泊', 2: '失控', 3: '受限', 5: '系泊', 15: '未定义'
+};
+
+// ===================================
+// GLOBAL STATE
+// ===================================
+let map, shipMarkers = {}, trackLayers = {}, predictionLayer = null, areaLayer = null, distanceLine = null;
+let selectedShip = null;
+let drawControl = null;
+let isDrawing = false;
+let drawnItems = null;
+
+// ===================================
+// INITIALIZE MAP
+// ===================================
+function initMap() {
+    map = L.map('map', {
+        center: [31.0, 122.0],
+        zoom: 8,
+        zoomControl: false,
+        attributionControl: false,
+        minZoom: 4,
+        maxZoom: 18
+    });
+
+    // Dark tile layer (CartoDB Dark Matter)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        maxZoom: 19,
+    }).addTo(map);
+
+    // Map events
+    map.on('zoomend moveend', updateMapInfo);
+
+    // Initialize drawn items layer
+    drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    // Render ships
+    renderShips();
+    updateMapInfo();
+}
+
+function updateMapInfo() {
+    const center = map.getCenter();
+    document.getElementById('mapZoom').textContent = '缩放: ' + map.getZoom();
+    document.getElementById('mapCenter').textContent =
+        center.lat.toFixed(1) + '°N, ' + center.lng.toFixed(1) + '°E';
+}
+
+function resetMapView() {
+    map.setView([31.0, 122.0], 8);
+}
+
+// ===================================
+// SHIP RENDERING
+// ===================================
+function getShipSVG(color, heading) {
+    const rotation = heading || 0;
+    return `<svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(${rotation}deg)">
+        <polygon points="14,2 22,24 14,20 6,24" fill="${color}" stroke="${color}" stroke-width="0.5" opacity="0.9"/>
+        <polygon points="14,6 18,20 14,18 10,20" fill="white" opacity="0.3"/>
+    </svg>`;
+}
+
+function createShipIcon(ship) {
+    return L.divIcon({
+        html: getShipSVG(ship.color, ship.position.heading),
+        className: '',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+    });
+}
+
+function renderShips() {
+    MOCK_SHIPS.forEach(ship => {
+        // Marker
+        const marker = L.marker([ship.position.lat, ship.position.lon], {
+            icon: createShipIcon(ship),
+            zIndexOffset: 1000
+        }).addTo(map);
+
+        // Popup
+        marker.bindPopup(`
+            <div style="min-width:200px; font-family:'Inter',sans-serif;">
+                <div style="font-size:14px; font-weight:600; color:#f1f5f9; margin-bottom:6px;">${ship.vessel_name}</div>
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px;">
+                    <span style="color:#64748b;">MMSI</span><span style="color:#e2e8f0; font-family:monospace;">${ship.mmsi}</span>
+                    <span style="color:#64748b;">类型</span><span style="color:#e2e8f0;">${VESSEL_TYPES[ship.vessel_type] || '未知'}</span>
+                    <span style="color:#64748b;">航速</span><span style="color:#38bdf8; font-family:monospace;">${ship.position.sog} kn</span>
+                    <span style="color:#64748b;">航向</span><span style="color:#e2e8f0; font-family:monospace;">${ship.position.cog}°</span>
+                </div>
+                <button onclick="selectShipByMMSI(${ship.mmsi})" style="margin-top:8px; width:100%; padding:6px; background:linear-gradient(135deg,#0EA5E9,#0284C7); color:white; border:none; border-radius:4px; font-size:12px; cursor:pointer;">
+                    查看详情
+                </button>
+            </div>
+        `, { className: 'dark-popup' });
+
+        marker.on('click', () => selectShipByMMSI(ship.mmsi));
+        shipMarkers[ship.mmsi] = marker;
+    });
+
+    renderShipList(MOCK_SHIPS);
+    populateShipSelects();
+}
+
+// ===================================
+// SHIP LIST
+// ===================================
+function renderShipList(ships) {
+    const container = document.getElementById('shipList');
+    container.innerHTML = ships.map(ship => `
+        <div class="card-hover rounded-lg px-3 py-2.5 cursor-pointer flex items-center gap-3 ${selectedShip?.mmsi === ship.mmsi ? 'bg-ocean-500/10 border border-ocean-500/20' : 'border border-transparent'}"
+             onclick="selectShipByMMSI(${ship.mmsi})" id="shipCard-${ship.mmsi}">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:${ship.color}22;">
+                <svg width="16" height="16" viewBox="0 0 28 28">
+                    <polygon points="14,4 20,22 14,19 8,22" fill="${ship.color}"/>
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="text-xs font-medium text-slate-200 truncate">${ship.vessel_name}</div>
+                <div class="text-[10px] text-slate-500 font-mono">${ship.mmsi}</div>
+            </div>
+            <div class="text-right flex-shrink-0">
+                <div class="text-[11px] font-mono ${ship.position.sog > 0 ? 'text-ocean-400' : 'text-slate-500'}">${ship.position.sog} kn</div>
+                <div class="text-[10px] text-slate-500">${VESSEL_TYPES[ship.vessel_type] || '未知'}</div>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('shipCount').textContent = ships.length + ' 艘';
+}
+
+// ===================================
+// SEARCH
+// ===================================
+function searchShips(keyword) {
+    if (!keyword) {
+        renderShipList(MOCK_SHIPS);
+        return;
+    }
+    const kw = keyword.toLowerCase();
+    const filtered = MOCK_SHIPS.filter(s =>
+        s.vessel_name.toLowerCase().includes(kw) ||
+        String(s.mmsi).includes(kw)
+    );
+    renderShipList(filtered);
+}
+
+function handleGlobalSearch(val) {
+    document.getElementById('shipSearch').value = val;
+    searchShips(val);
+}
+
+// ===================================
+// SELECT SHIP
+// ===================================
+function selectShipByMMSI(mmsi) {
+    const ship = MOCK_SHIPS.find(s => s.mmsi === mmsi);
+    if (!ship) return;
+    selectedShip = ship;
+
+    // Update list highlight
+    renderShipList(MOCK_SHIPS.filter(s => {
+        const kw = document.getElementById('shipSearch').value.toLowerCase();
+        return !kw || s.vessel_name.toLowerCase().includes(kw) || String(s.mmsi).includes(kw);
+    }));
+
+    // Pan to ship
+    map.setView([ship.position.lat, ship.position.lon], Math.max(map.getZoom(), 9));
+
+    // Show detail
+    showShipDetail(ship);
+
+    // Draw track
+    drawTrack(ship);
+
+    showToast('success', '船舶已选中', ship.vessel_name + ' (' + ship.mmsi + ')');
+}
+
+function showShipDetail(ship) {
+    document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('shipDetail').classList.remove('hidden');
+
+    document.getElementById('detailName').textContent = ship.vessel_name;
+    document.getElementById('detailMMSI').textContent = 'MMSI: ' + ship.mmsi;
+    document.getElementById('detailType').textContent = VESSEL_TYPES[ship.vessel_type] || '未知';
+    document.getElementById('detailIMO').textContent = ship.imo;
+    document.getElementById('detailCallSign').textContent = ship.call_sign;
+    document.getElementById('detailLength').textContent = ship.length;
+    document.getElementById('detailWidth').textContent = ship.width;
+    document.getElementById('detailDraft').textContent = ship.draft;
+    document.getElementById('detailStatus').textContent = NAV_STATUS[ship.status] || '未知';
+    document.getElementById('detailStatus').className = ship.status === 0 ? 'text-xs text-emerald-400' : 'text-xs text-amber-400';
+    document.getElementById('detailLon').textContent = ship.position.lon.toFixed(4) + '°E';
+    document.getElementById('detailLat').textContent = ship.position.lat.toFixed(4) + '°N';
+    document.getElementById('detailSOG').textContent = ship.position.sog + ' kn';
+    document.getElementById('detailCOG').textContent = ship.position.cog + '°';
+    document.getElementById('detailLastUpdate').textContent = '2026-03-12 ' + (8 + Math.floor(Math.random() * 4)) + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0') + ':00';
+
+    // Auto switch to detail tab
+    switchTab('detail');
+}
+
+// ===================================
+// TRACK DRAWING
+// ===================================
+function drawTrack(ship) {
+    // Clear existing track for this ship
+    if (trackLayers[ship.mmsi]) {
+        map.removeLayer(trackLayers[ship.mmsi]);
+    }
+
+    const latlngs = ship.track.map(p => [p[1], p[0]]);
+
+    // Gradient polyline simulation - draw with decreasing opacity
+    const trackGroup = L.layerGroup();
+
+    // Main track line
+    const mainLine = L.polyline(latlngs, {
+        color: ship.color,
+        weight: 3,
+        opacity: 0.8,
+        smoothFactor: 1,
+        lineCap: 'round',
+        lineJoin: 'round'
+    });
+    trackGroup.addLayer(mainLine);
+
+    // Glow effect
+    const glowLine = L.polyline(latlngs, {
+        color: ship.color,
+        weight: 8,
+        opacity: 0.15,
+        smoothFactor: 1,
+        lineCap: 'round'
+    });
+    trackGroup.addLayer(glowLine);
+
+    // Track points
+    latlngs.forEach((ll, i) => {
+        const isLast = i === latlngs.length - 1;
+        const circle = L.circleMarker(ll, {
+            radius: isLast ? 0 : 2.5,
+            fillColor: ship.color,
+            fillOpacity: 0.4 + (i / latlngs.length) * 0.6,
+            stroke: false,
+        });
+        trackGroup.addLayer(circle);
+    });
+
+    trackGroup.addTo(map);
+    trackLayers[ship.mmsi] = trackGroup;
+
+    document.getElementById('trackCount').textContent = Object.keys(trackLayers).length;
+}
+
+// ===================================
+// QUERY TRACK (with time filter simulation)
+// ===================================
+function queryTrack() {
+    if (!selectedShip) {
+        showToast('warning', '请先选择船舶', '请在左侧列表中选择一艘船舶');
+        return;
+    }
+
+    showToast('info', '查询中...', '正在查询 ' + selectedShip.vessel_name + ' 的轨迹');
+
+    setTimeout(() => {
+        drawTrack(selectedShip);
+        showStats(selectedShip);
+        showToast('success', '查询完成', '已加载 ' + selectedShip.track.length + ' 个轨迹点');
+    }, 600);
+}
+
+// ===================================
+// STATISTICS
+// ===================================
+function showStats(ship) {
+    document.getElementById('statsEmpty').classList.add('hidden');
+    document.getElementById('statsContent').classList.remove('hidden');
+
+    // Generate mock stats based on track
+    const distance = (ship.track.length * 15 + Math.random() * 50).toFixed(1);
+    const duration = (ship.track.length * 1.2 + Math.random() * 5).toFixed(1);
+    const maxSpeed = (ship.position.sog + Math.random() * 8).toFixed(1);
+    const avgSpeed = (ship.position.sog * 0.7 + Math.random() * 3).toFixed(1);
+
+    document.getElementById('statDistance').textContent = distance;
+    document.getElementById('statDuration').textContent = duration;
+    document.getElementById('statMaxSpeed').textContent = maxSpeed;
+    document.getElementById('statAvgSpeed').textContent = avgSpeed;
+
+    // Speed chart
+    renderSpeedChart(ship);
+    renderSOGDistChart(ship);
+}
+
+function renderSpeedChart(ship) {
+    const chart = echarts.init(document.getElementById('speedChart'));
+    const times = [];
+    const speeds = [];
+    const baseTime = new Date('2026-03-12T06:00:00');
+
+    for (let i = 0; i < ship.track.length; i++) {
+        const t = new Date(baseTime.getTime() + i * 30 * 60000);
+        times.push(t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0'));
+        speeds.push(+(ship.position.sog * (0.5 + Math.random())).toFixed(1));
+    }
+
+    chart.setOption({
+        grid: { top: 10, right: 10, bottom: 24, left: 36 },
+        xAxis: {
+            type: 'category', data: times,
+            axisLine: { lineStyle: { color: '#334155' } },
+            axisLabel: { color: '#64748b', fontSize: 10 },
+            axisTick: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            axisLine: { show: false },
+            axisLabel: { color: '#64748b', fontSize: 10 },
+            splitLine: { lineStyle: { color: '#1e293b' } },
+        },
+        series: [{
+            data: speeds,
+            type: 'line',
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 4,
+            lineStyle: { color: ship.color, width: 2 },
+            itemStyle: { color: ship.color },
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [
+                        { offset: 0, color: ship.color + '40' },
+                        { offset: 1, color: ship.color + '05' }
+                    ]
+                }
+            }
+        }],
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#1e293b',
+            borderColor: '#334155',
+            textStyle: { color: '#e2e8f0', fontSize: 11 },
+            formatter: '{b}<br/>速度: {c} kn'
+        }
+    });
+}
+
+function renderSOGDistChart(ship) {
+    const chart = echarts.init(document.getElementById('sogDistChart'));
+    const ranges = ['0-5', '5-10', '10-15', '15-20', '20+'];
+    const counts = ranges.map(() => Math.floor(Math.random() * 30) + 5);
+
+    chart.setOption({
+        grid: { top: 10, right: 10, bottom: 24, left: 36 },
+        xAxis: {
+            type: 'category', data: ranges,
+            axisLine: { lineStyle: { color: '#334155' } },
+            axisLabel: { color: '#64748b', fontSize: 10 },
+            axisTick: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            axisLine: { show: false },
+            axisLabel: { color: '#64748b', fontSize: 10 },
+            splitLine: { lineStyle: { color: '#1e293b' } },
+        },
+        series: [{
+            data: counts.map((v, i) => ({
+                value: v,
+                itemStyle: {
+                    color: {
+                        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [
+                            { offset: 0, color: ship.color + 'cc' },
+                            { offset: 1, color: ship.color + '33' }
+                        ]
+                    },
+                    borderRadius: [3, 3, 0, 0]
+                }
+            })),
+            type: 'bar',
+            barWidth: '50%',
+        }],
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#1e293b',
+            borderColor: '#334155',
+            textStyle: { color: '#e2e8f0', fontSize: 11 },
+            formatter: '{b} kn<br/>数量: {c}'
+        }
+    });
+}
+
+// ===================================
+// AREA DETECTION
+// ===================================
+function toggleAreaDraw() {
+    if (!selectedShip) {
+        showToast('warning', '请先选择船舶', '请在左侧列表中选择一艘船舶');
+        return;
+    }
+
+    if (isDrawing) {
+        stopAreaDraw();
+        return;
+    }
+
+    isDrawing = true;
+    const btn = document.getElementById('btnAreaDraw');
+    btn.classList.add('!bg-ocean-500/20', '!border-ocean-500/40', '!text-ocean-400');
+    btn.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 取消绘制`;
+
+    showToast('info', '区域绘制模式', '请在地图上点击绘制矩形区域');
+
+    // Enable draw control
+    drawControl = new L.Draw.Rectangle(map, {
+        shapeOptions: {
+            color: '#0EA5E9',
+            fillColor: '#0EA5E9',
+            fillOpacity: 0.1,
+            weight: 2,
+            dashArray: '6, 4'
+        }
+    });
+    drawControl.enable();
+
+    map.on(L.Draw.Event.CREATED, function(e) {
+        drawnItems.clearLayers();
+        drawnItems.addLayer(e.layer);
+        areaLayer = e.layer;
+        stopAreaDraw();
+        performAreaDetection(e.layer.getBounds());
+    });
+}
+
+function stopAreaDraw() {
+    isDrawing = false;
+    if (drawControl) drawControl.disable();
+    const btn = document.getElementById('btnAreaDraw');
+    btn.classList.remove('!bg-ocean-500/20', '!border-ocean-500/40', '!text-ocean-400');
+    btn.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> 区域检测`;
+}
+
+function performAreaDetection(bounds) {
+    if (!selectedShip) return;
+
+    // Check if any track point is inside bounds
+    const entered = selectedShip.track.some(p => bounds.contains([p[1], p[0]]));
+    const enterPoints = selectedShip.track.filter(p => bounds.contains([p[1], p[0]]));
+
+    switchTab('analysis');
+    document.getElementById('analysisEmpty').classList.add('hidden');
+    document.getElementById('areaResult').classList.remove('hidden');
+
+    const card = document.getElementById('areaResultCard');
+    if (entered) {
+        card.className = 'rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3';
+        card.innerHTML = `
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                    <svg width="14" height="14" fill="none" stroke="#10B981" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <span class="text-sm font-medium text-emerald-400">已进入指定区域</span>
+            </div>
+            <div class="space-y-2 text-[11px]">
+                <div class="flex justify-between"><span class="text-slate-500">船舶</span><span class="text-slate-200">${selectedShip.vessel_name}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">进入时间</span><span class="font-mono text-slate-200">2026-03-12 09:30:00</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">离开时间</span><span class="font-mono text-slate-200">2026-03-12 11:45:00</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">停留时长</span><span class="font-mono text-ocean-400">2小时15分</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">区域内轨迹点</span><span class="font-mono text-slate-200">${enterPoints.length} 个</span></div>
+            </div>
+        `;
+    } else {
+        card.className = 'rounded-lg border border-slate-600/50 bg-slate-800/50 p-3';
+        card.innerHTML = `
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-6 h-6 rounded-full bg-slate-600/30 flex items-center justify-center">
+                    <svg width="14" height="14" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </div>
+                <span class="text-sm font-medium text-slate-400">未进入指定区域</span>
+            </div>
+            <div class="text-[11px] text-slate-500">
+                ${selectedShip.vessel_name} 在查询时间段内未进入您绘制的区域范围。
+            </div>
+        `;
+    }
+
+    showToast(entered ? 'success' : 'info', '区域检测完成', entered ? '船舶已进入指定区域' : '船舶未进入指定区域');
+}
+
+function clearAreaResult() {
+    document.getElementById('areaResult').classList.add('hidden');
+    drawnItems.clearLayers();
+    areaLayer = null;
+    checkAnalysisEmpty();
+}
+
+// ===================================
+// DISTANCE CALCULATION
+// ===================================
+function populateShipSelects() {
+    const options = MOCK_SHIPS.map(s => `<option value="${s.mmsi}">${s.vessel_name} (${s.mmsi})</option>`).join('');
+    document.getElementById('ship1Select').innerHTML = '<option value="">选择船舶...</option>' + options;
+    document.getElementById('ship2Select').innerHTML = '<option value="">选择船舶...</option>' + options;
+}
+
+function openDistanceCalc() {
+    document.getElementById('distanceCalcPanel').classList.remove('hidden');
+}
+
+function closeDistanceCalc() {
+    document.getElementById('distanceCalcPanel').classList.add('hidden');
+    clearDistanceResult();
+}
+
+function calcDistance() {
+    const mmsi1 = parseInt(document.getElementById('ship1Select').value);
+    const mmsi2 = parseInt(document.getElementById('ship2Select').value);
+    if (!mmsi1 || !mmsi2) return;
+    if (mmsi1 === mmsi2) {
+        showToast('warning', '请选择不同船舶', '两艘船不能是同一艘');
+        return;
+    }
+
+    const ship1 = MOCK_SHIPS.find(s => s.mmsi === mmsi1);
+    const ship2 = MOCK_SHIPS.find(s => s.mmsi === mmsi2);
+
+    // Calculate distance using Haversine
+    const dist = haversineDistance(
+        ship1.position.lat, ship1.position.lon,
+        ship2.position.lat, ship2.position.lon
+    );
+
+    // Draw line on map
+    if (distanceLine) map.removeLayer(distanceLine);
+    const lineGroup = L.layerGroup();
+
+    const line = L.polyline(
+        [[ship1.position.lat, ship1.position.lon], [ship2.position.lat, ship2.position.lon]],
+        { color: '#F59E0B', weight: 2, dashArray: '8, 6', opacity: 0.8 }
+    );
+    lineGroup.addLayer(line);
+
+    // Midpoint label
+    const midLat = (ship1.position.lat + ship2.position.lat) / 2;
+    const midLon = (ship1.position.lon + ship2.position.lon) / 2;
+    const label = L.divIcon({
+        html: `<div style="background:#1e293b; border:1px solid #F59E0B55; padding:2px 8px; border-radius:4px; font-size:11px; color:#F59E0B; font-family:monospace; white-space:nowrap;">${dist.toFixed(1)} km</div>`,
+        className: '',
+        iconAnchor: [30, 10]
+    });
+    lineGroup.addLayer(L.marker([midLat, midLon], { icon: label }));
+    lineGroup.addTo(map);
+    distanceLine = lineGroup;
+
+    // Fit bounds
+    map.fitBounds([[ship1.position.lat, ship1.position.lon], [ship2.position.lat, ship2.position.lon]], { padding: [60, 60] });
+
+    // Show result in analysis tab
+    switchTab('analysis');
+    document.getElementById('analysisEmpty').classList.add('hidden');
+    document.getElementById('distanceResult').classList.remove('hidden');
+
+    const minDist = (dist * (0.3 + Math.random() * 0.3)).toFixed(2);
+    document.getElementById('distanceResultCard').innerHTML = `
+        <div class="space-y-2 text-[11px]">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-3 h-3 rounded-full" style="background:${ship1.color}"></div>
+                <span class="text-slate-200">${ship1.vessel_name}</span>
+                <svg width="16" height="16" fill="none" stroke="#475569" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                <div class="w-3 h-3 rounded-full" style="background:${ship2.color}"></div>
+                <span class="text-slate-200">${ship2.vessel_name}</span>
+            </div>
+            <div class="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-center">
+                <div class="text-2xl font-bold font-mono text-amber-400">${dist.toFixed(2)}</div>
+                <div class="text-[10px] text-amber-500/70 mt-1">当前距离 (km)</div>
+            </div>
+            <div class="flex justify-between"><span class="text-slate-500">最近距离</span><span class="font-mono text-slate-200">${minDist} km</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">最近时间</span><span class="font-mono text-slate-200">2026-03-12 09:15:00</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">当前距离</span><span class="font-mono text-amber-400">${dist.toFixed(2)} km</span></div>
+        </div>
+    `;
+
+    showToast('success', '距离计算完成', `${ship1.vessel_name} ↔ ${ship2.vessel_name}: ${dist.toFixed(1)} km`);
+}
+
+function clearDistanceResult() {
+    document.getElementById('distanceResult').classList.add('hidden');
+    if (distanceLine) {
+        map.removeLayer(distanceLine);
+        distanceLine = null;
+    }
+    checkAnalysisEmpty();
+}
+
+function haversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+// ===================================
+// TRAJECTORY PREDICTION
+// ===================================
+function startPrediction() {
+    if (!selectedShip) {
+        showToast('warning', '请先选择船舶', '请在左侧列表中选择一艘船舶');
+        return;
+    }
+
+    showToast('info', '预测计算中...', '正在为 ' + selectedShip.vessel_name + ' 生成轨迹预测');
+
+    setTimeout(() => {
+        const track = selectedShip.track;
+        const last = track[track.length - 1];
+        const secondLast = track[track.length - 2];
+
+        const dLon = last[0] - secondLast[0];
+        const dLat = last[1] - secondLast[1];
+
+        // Generate prediction points
+        const predictedPoints = [];
+        for (let i = 1; i <= 6; i++) {
+            predictedPoints.push([
+                last[0] + dLon * i * (1 + Math.random() * 0.15 - 0.075),
+                last[1] + dLat * i * (1 + Math.random() * 0.15 - 0.075)
+            ]);
+        }
+
+        // Draw prediction on map
+        if (predictionLayer) map.removeLayer(predictionLayer);
+        const predGroup = L.layerGroup();
+
+        const latlngs = [[last[1], last[0]], ...predictedPoints.map(p => [p[1], p[0]])];
+
+        // Dashed prediction line
+        const predLine = L.polyline(latlngs, {
+            color: '#F59E0B',
+            weight: 2.5,
+            opacity: 0.7,
+            dashArray: '8, 6',
+            lineCap: 'round'
+        });
+        predGroup.addLayer(predLine);
+
+        // Prediction points with decreasing opacity
+        predictedPoints.forEach((p, i) => {
+            const opacity = 1 - (i / predictedPoints.length) * 0.6;
+            const circle = L.circleMarker([p[1], p[0]], {
+                radius: 4,
+                fillColor: '#F59E0B',
+                fillOpacity: opacity * 0.6,
+                stroke: true,
+                color: '#F59E0B',
+                weight: 1,
+                opacity: opacity * 0.3
+            });
+            predGroup.addLayer(circle);
+        });
+
+        // End point marker
+        const endPoint = predictedPoints[predictedPoints.length - 1];
+        const endIcon = L.divIcon({
+            html: `<div style="width:10px;height:10px;background:#F59E0B;border-radius:50%;border:2px solid #FDE68A;box-shadow:0 0 10px #F59E0B88;"></div>`,
+            className: '',
+            iconSize: [10, 10],
+            iconAnchor: [5, 5]
+        });
+        predGroup.addLayer(L.marker([endPoint[1], endPoint[0]], { icon: endIcon }));
+
+        predGroup.addTo(map);
+        predictionLayer = predGroup;
+
+        // Show result
+        switchTab('analysis');
+        document.getElementById('analysisEmpty').classList.add('hidden');
+        document.getElementById('predictionResult').classList.remove('hidden');
+
+        const confidence = (70 + Math.random() * 20).toFixed(0);
+        document.getElementById('predictionResultCard').innerHTML = `
+            <div class="space-y-2 text-[11px]">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-slate-200 font-medium">${selectedShip.vessel_name}</span>
+                    <span class="badge bg-amber-500/20 text-amber-400 border border-amber-500/30">线性外推</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="rounded-lg bg-slate-700/30 p-2.5 text-center">
+                        <div class="text-base font-bold font-mono text-amber-400">${confidence}%</div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">置信度</div>
+                    </div>
+                    <div class="rounded-lg bg-slate-700/30 p-2.5 text-center">
+                        <div class="text-base font-bold font-mono text-slate-200">3h</div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">预测时长</div>
+                    </div>
+                </div>
+                <div class="flex justify-between"><span class="text-slate-500">预测点数</span><span class="font-mono text-slate-200">${predictedPoints.length} 个</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">预测终点</span><span class="font-mono text-slate-200">${endPoint[0].toFixed(3)}°E, ${endPoint[1].toFixed(3)}°N</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">当前航速</span><span class="font-mono text-ocean-400">${selectedShip.position.sog} kn</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">当前航向</span><span class="font-mono text-slate-200">${selectedShip.position.cog}°</span></div>
+                <div class="mt-2 p-2 rounded bg-amber-500/5 border border-amber-500/10">
+                    <p class="text-[10px] text-amber-400/70">⚠ 预测结果仅供参考，实际航行可能受风浪、洋流、避让等因素影响。</p>
+                </div>
+            </div>
+        `;
+
+        showToast('success', '轨迹预测完成', `置信度: ${confidence}%，预测 ${predictedPoints.length} 个航路点`);
+    }, 800);
+}
+
+function clearPrediction() {
+    document.getElementById('predictionResult').classList.add('hidden');
+    if (predictionLayer) {
+        map.removeLayer(predictionLayer);
+        predictionLayer = null;
+    }
+    checkAnalysisEmpty();
+}
+
+function checkAnalysisEmpty() {
+    const areaHidden = document.getElementById('areaResult').classList.contains('hidden');
+    const distHidden = document.getElementById('distanceResult').classList.contains('hidden');
+    const predHidden = document.getElementById('predictionResult').classList.contains('hidden');
+    if (areaHidden && distHidden && predHidden) {
+        document.getElementById('analysisEmpty').classList.remove('hidden');
+    }
+}
+
+// ===================================
+// TIME QUICK SELECT
+// ===================================
+function setQuickTime(period) {
+    const now = new Date('2026-03-12T12:00:00');
+    let start;
+    switch(period) {
+        case '1h': start = new Date(now - 3600000); break;
+        case '6h': start = new Date(now - 6 * 3600000); break;
+        case '24h': start = new Date(now - 24 * 3600000); break;
+        case '7d': start = new Date(now - 7 * 24 * 3600000); break;
+    }
+
+    document.getElementById('startTime').value = formatDateTimeLocal(start);
+    document.getElementById('endTime').value = formatDateTimeLocal(now);
+
+    // Highlight active button
+    document.querySelectorAll('[onclick^="setQuickTime"]').forEach(btn => {
+        btn.className = 'text-[11px] px-2.5 py-1 rounded bg-slate-700/50 text-slate-400 border border-slate-600/30 hover:bg-slate-600/50 transition';
+    });
+    event.target.className = 'text-[11px] px-2.5 py-1 rounded bg-ocean-500/20 text-ocean-400 border border-ocean-500/30 hover:bg-ocean-500/30 transition';
+}
+
+function formatDateTimeLocal(date) {
+    return date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0') + 'T' +
+        String(date.getHours()).padStart(2, '0') + ':' +
+        String(date.getMinutes()).padStart(2, '0');
+}
+
+// ===================================
+// TAB SWITCHING
+// ===================================
+function switchTab(tab) {
+    ['detail', 'stats', 'analysis'].forEach(t => {
+        document.getElementById('content-' + t).classList.toggle('hidden', t !== tab);
+        const tabEl = document.getElementById('tab-' + t);
+        if (t === tab) {
+            tabEl.className = 'text-xs py-2.5 px-3 tab-active';
+        } else {
+            tabEl.className = 'text-xs py-2.5 px-3 text-slate-500 hover:text-slate-300 transition';
+        }
+    });
+}
+
+// ===================================
+// PANEL TOGGLE
+// ===================================
+function toggleLeftPanel() {
+    const panel = document.getElementById('leftPanel');
+    const toggle = document.getElementById('leftToggle');
+    if (panel.style.width === '0px') {
+        panel.style.width = '320px';
+        panel.style.overflow = 'auto';
+        toggle.classList.add('hidden');
+    } else {
+        panel.style.width = '0px';
+        panel.style.overflow = 'hidden';
+        toggle.classList.remove('hidden');
+    }
+    setTimeout(() => map.invalidateSize(), 350);
+}
+
+function toggleRightPanel() {
+    const panel = document.getElementById('rightPanel');
+    const toggle = document.getElementById('rightToggle');
+    if (panel.style.width === '0px') {
+        panel.style.width = '360px';
+        panel.style.overflow = 'auto';
+        toggle.classList.add('hidden');
+    } else {
+        panel.style.width = '0px';
+        panel.style.overflow = 'hidden';
+        toggle.classList.remove('hidden');
+    }
+    setTimeout(() => map.invalidateSize(), 350);
+}
+
+// ===================================
+// TOAST NOTIFICATIONS
+// ===================================
+function showToast(type, title, msg) {
+    const toast = document.getElementById('toast');
+    const iconEl = document.getElementById('toastIcon');
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastMsg').textContent = msg;
+
+    const icons = {
+        success: { bg: 'bg-emerald-500/20', svg: '<svg width="16" height="16" fill="none" stroke="#10B981" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>' },
+        warning: { bg: 'bg-amber-500/20', svg: '<svg width="16" height="16" fill="none" stroke="#F59E0B" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' },
+        info: { bg: 'bg-ocean-500/20', svg: '<svg width="16" height="16" fill="none" stroke="#0EA5E9" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>' },
+        error: { bg: 'bg-red-500/20', svg: '<svg width="16" height="16" fill="none" stroke="#EF4444" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' },
+    };
+
+    const icon = icons[type] || icons.info;
+    iconEl.className = 'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ' + icon.bg;
+    iconEl.innerHTML = icon.svg;
+
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    toast.classList.add('translate-x-0', 'opacity-100');
+
+    setTimeout(() => {
+        toast.classList.add('translate-x-full', 'opacity-0');
+        toast.classList.remove('translate-x-0', 'opacity-100');
+    }, 3000);
+}
+
+// ===================================
+// EXPORT DATA (mock)
+// ===================================
+function exportData() {
+    if (!selectedShip) {
+        showToast('warning', '请先选择船舶', '请先选择一艘船舶后再导出');
+        return;
+    }
+    showToast('success', '导出成功', selectedShip.vessel_name + ' 的数据已导出为 CSV');
+}
+
+// ===================================
+// CLOCK
+// ===================================
+function updateClock() {
+    const now = new Date();
+    const time = now.toLocaleTimeString('zh-CN', { hour12: false });
+    document.getElementById('currentTime').textContent = time;
+    document.getElementById('footerTime').textContent = '2026-03-12 ' + time;
+}
+
+// ===================================
+// HEATMAP TOGGLE (mock)
+// ===================================
+let heatmapOn = false;
+function toggleHeatmap() {
+    heatmapOn = !heatmapOn;
+    showToast('info', heatmapOn ? '热力图已开启' : '热力图已关闭', '图层切换成功');
+}
+
+// ===================================
+// SETTINGS (mock)
+// ===================================
+function toggleSettings() {
+    showToast('info', '设置', '设置面板开发中...');
+}
+
+// ===================================
+// INIT
+// ===================================
+window.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    updateClock();
+    setInterval(updateClock, 1000);
+});
+
+// Resize handling for charts
+window.addEventListener('resize', () => {
+    const speedChart = echarts.getInstanceByDom(document.getElementById('speedChart'));
+    const sogChart = echarts.getInstanceByDom(document.getElementById('sogDistChart'));
+    if (speedChart) speedChart.resize();
+    if (sogChart) sogChart.resize();
+    if (map) map.invalidateSize();
+});
+</script>
+</body>
+</html>

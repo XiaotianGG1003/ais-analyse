@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  db:
+    image: mobilitydb/mobilitydb:pg15-develop
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ais_db
+      POSTGRES_USER: ais_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ais_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ais_user:${DB_PASSWORD:-ais_password}@db:5432/ais_db
+      CORS_ORIGINS: '["http://localhost:5173","http://localhost:80"]'
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
