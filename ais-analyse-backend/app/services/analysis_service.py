@@ -23,7 +23,7 @@ async def get_track_statistics(
 ) -> TrackStatistics | None:
     """航行统计（距离、时长、速度等）"""
     query = text("""
-        SELECT
+        SELECT 
             mmsi,
             length(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true))) AS distance_m,
             duration(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true))) AS duration_interval,
