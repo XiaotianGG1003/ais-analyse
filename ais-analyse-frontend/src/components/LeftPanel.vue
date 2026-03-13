@@ -1,13 +1,39 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES } from '@/types'
 import { formatDateTimeLocal } from '@/utils/geo'
+import { getImportTask, importAisCsv, importAisCsvByPath, listImportTasks } from '@/api'
+import type { ImportTaskStatus } from '@/api'
 
 const store = useAppStore()
 
 const distancePanelOpen = ref(false)
 const activeQuick = ref('1h')
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+const importPath = ref('')
+const importTaskId = ref('')
+const importStage = ref('')
+const importProgress = ref(0)
+const importStatus = ref('idle')
+const importCurrentRows = ref(0)
+const importTotalRows = ref(0)
+const importEtaSeconds = ref<number | null>(null)
+const mobilityStage = ref('等待执行')
+const mobilityProgress = ref(0)
+const mobilityCurrentRows = ref(0)
+const mobilityTotalRows = ref(0)
+const mobilityEtaSeconds = ref<number | null>(null)
+const mobilityStatus = ref('queued')
+const pklStage = ref('等待开始')
+const pklProgress = ref(0)
+const pklEtaSeconds = ref<number | null>(null)
+const pklStatus = ref('queued')
+const pklSampleCount = ref(0)
+const pklOutputPath = ref('')
+const importHistory = ref<ImportTaskStatus[]>([])
+let importPollTimer: number | null = null
 
 function setQuickTime(period: string) {
   activeQuick.value = period
@@ -78,6 +104,182 @@ function onCalcDist() {
   }
   emit('calcDistance', a, b)
 }
+
+function onImportClick() {
+  fileInputRef.value?.click()
+}
+
+function stopImportPolling() {
+  if (importPollTimer !== null) {
+    window.clearInterval(importPollTimer)
+    importPollTimer = null
+  }
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value)
+}
+
+function formatEta(seconds: number | null) {
+  if (seconds === null || seconds < 0) return '计算中'
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  if (minutes < 60) return `${minutes} 分 ${remainSeconds} 秒`
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return `${hours} 小时 ${remainMinutes} 分`
+}
+
+function formatTaskTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function taskStatusClass(status: string) {
+  if (status === 'completed') return 'text-emerald-400'
+  if (status === 'failed') return 'text-rose-400'
+  if (status === 'running') return 'text-ocean-400'
+  return 'text-amber-400'
+}
+
+function taskStatusLabel(status: string) {
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  if (status === 'running') return '进行中'
+  return '排队中'
+}
+
+async function loadImportHistory() {
+  try {
+    importHistory.value = await listImportTasks(6)
+  } catch {
+  }
+}
+
+async function pollImportTask() {
+  if (!importTaskId.value) return
+  try {
+    const task = await getImportTask(importTaskId.value)
+    importStatus.value = task.status
+    importStage.value = task.stage
+    importProgress.value = task.progress
+    importCurrentRows.value = task.current_rows
+    importTotalRows.value = task.total_rows
+    importEtaSeconds.value = task.eta_seconds
+    mobilityStage.value = task.mobility_stage
+    mobilityProgress.value = task.mobility_progress
+    mobilityCurrentRows.value = task.mobility_current_rows
+    mobilityTotalRows.value = task.mobility_total_rows
+    mobilityEtaSeconds.value = task.mobility_eta_seconds
+    mobilityStatus.value = task.mobility_status
+    pklStage.value = task.pkl_stage
+    pklProgress.value = task.pkl_progress
+    pklEtaSeconds.value = task.pkl_eta_seconds
+    pklStatus.value = task.pkl_status
+    pklSampleCount.value = task.pkl_sample_count
+    pklOutputPath.value = task.pkl_output_path || ''
+    await loadImportHistory()
+
+    if (task.status === 'completed') {
+      stopImportPolling()
+      importing.value = false
+      const rebuildMsg = task.trips_rebuilt ? '，轨迹表已重建' : ''
+      store.showToast(
+        `导入成功：已复制 ${task.rows_inserted} 条原始记录；pkl样本 ${task.pkl_sample_count} 条${rebuildMsg}`,
+        'success',
+      )
+    } else if (task.status === 'failed') {
+      stopImportPolling()
+      importing.value = false
+      store.showToast(`导入失败：${task.error || '未知错误'}`, 'error')
+    }
+  } catch (err: any) {
+    stopImportPolling()
+    importing.value = false
+    store.showToast(`查询导入状态失败：${err.message}`, 'error')
+  }
+}
+
+function startImportPolling(taskId: string, initialStage: string, initialProgress: number) {
+  stopImportPolling()
+  importTaskId.value = taskId
+  importStage.value = initialStage
+  importProgress.value = initialProgress
+  importStatus.value = 'running'
+  importCurrentRows.value = 0
+  importTotalRows.value = 0
+  importEtaSeconds.value = null
+  mobilityStage.value = '等待执行'
+  mobilityProgress.value = 0
+  mobilityCurrentRows.value = 0
+  mobilityTotalRows.value = 0
+  mobilityEtaSeconds.value = null
+  mobilityStatus.value = 'queued'
+  pklStage.value = '等待开始'
+  pklProgress.value = 0
+  pklEtaSeconds.value = null
+  pklStatus.value = 'queued'
+  pklSampleCount.value = 0
+  pklOutputPath.value = ''
+  importPollTimer = window.setInterval(() => {
+    void pollImportTask()
+  }, 2000)
+  void pollImportTask()
+}
+
+async function onFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  importing.value = true
+  store.showToast(`已创建导入任务：${file.name}`, 'info')
+  try {
+    const result = await importAisCsv(file, true)
+    await loadImportHistory()
+    startImportPolling(result.task_id, result.stage, result.progress)
+  } catch (err: any) {
+    store.showToast(`导入失败：${err.message}`, 'error')
+    importing.value = false
+  } finally {
+  }
+}
+
+async function onImportByPath() {
+  const filePath = importPath.value.trim()
+  if (!filePath) {
+    store.showToast('请输入 CSV 文件完整路径', 'warning')
+    return
+  }
+
+  importing.value = true
+  store.showToast('已创建大文件导入任务，后台开始处理...', 'info')
+  try {
+    const result = await importAisCsvByPath(filePath, true)
+    await loadImportHistory()
+    startImportPolling(result.task_id, result.stage, result.progress)
+  } catch (err: any) {
+    store.showToast(`导入失败：${err.message}`, 'error')
+    importing.value = false
+  } finally {
+  }
+}
+
+onMounted(() => {
+  void loadImportHistory()
+})
+
+onBeforeUnmount(() => {
+  stopImportPolling()
+})
 
 const quickList = [
   { label: '1小时', value: '1h' },
@@ -236,6 +438,155 @@ const quickList = [
           </svg>
           导出数据
         </button>
+      </div>
+    </div>
+
+    <!-- Data Import -->
+    <div class="px-4 py-3 border-b border-slate-700/20">
+      <label class="text-xs text-slate-500 font-medium mb-2 block">数据导入</label>
+      <input
+        ref="fileInputRef"
+        type="file"
+        accept=".csv"
+        class="hidden"
+        @change="onFileSelected"
+      />
+      <button
+        class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 border transition"
+        :class="importing
+          ? 'border-slate-600 text-slate-500 cursor-not-allowed bg-slate-800'
+          : 'border-emerald-600/50 text-emerald-400 hover:bg-emerald-900/30 bg-transparent'"
+        :disabled="importing"
+        @click="onImportClick"
+      >
+        <svg v-if="!importing" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <svg v-else class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        </svg>
+        {{ importing ? '执行两阶段处理中...' : '导入 AIS CSV（两阶段）' }}
+      </button>
+      <p class="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
+        阶段1：仅复制 CSV 到 ais_raw；阶段2：清洗/分段/插值后生成 pkl
+      </p>
+      <div class="mt-3 space-y-2">
+        <input
+          v-model="importPath"
+          type="text"
+          placeholder="例如：D:\\AIS\\ais_2025.csv"
+          class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+          style="background: #1a2332; color: #e2e8f0"
+        />
+        <button
+          class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 transition"
+          :class="importing
+            ? 'bg-slate-700 border border-slate-600 text-slate-400 cursor-not-allowed'
+            : 'bg-ocean-500/10 border border-ocean-500/40 text-ocean-400 hover:bg-ocean-500/20'"
+          :disabled="importing"
+          @click="onImportByPath"
+        >
+          按路径导入大文件
+        </button>
+      </div>
+      <div v-if="importTaskId" class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/50 p-2.5">
+        <div class="flex items-center justify-between text-[10px] text-slate-400">
+          <span>任务总状态</span>
+          <span>{{ importProgress }}%</span>
+        </div>
+        <div class="mt-1 text-xs text-slate-300">{{ importStage || '等待执行' }}</div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+          <div
+            class="h-full rounded bg-ocean-500 transition-all duration-500"
+            :style="{ width: `${importProgress}%` }"
+          />
+        </div>
+        <div class="mt-2 text-[10px] text-slate-500 break-all">任务ID：{{ importTaskId }}</div>
+
+        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>1) 复制 CSV 到 ais_raw（不清洗）</span>
+            <span>{{ mobilityProgress }}%</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-300">{{ mobilityStage }}</div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>已读行数</span>
+            <span>
+              {{ formatNumber(mobilityCurrentRows) }}
+              <template v-if="mobilityTotalRows > 0"> / {{ formatNumber(mobilityTotalRows) }}</template>
+            </span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>预计剩余</span>
+            <span>{{ mobilityStatus === 'completed' ? '导入完成' : formatEta(mobilityEtaSeconds) }}</span>
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+            <div class="h-full rounded bg-emerald-500 transition-all duration-500" :style="{ width: `${mobilityProgress}%` }" />
+          </div>
+        </div>
+
+        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>2) 清洗分段并生成 pkl</span>
+            <span>{{ pklProgress }}%</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-300">{{ pklStage }}</div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>预计剩余</span>
+            <span>{{ pklStatus === 'completed' ? '处理完成' : formatEta(pklEtaSeconds) }}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>样本数量</span>
+            <span>{{ formatNumber(pklSampleCount) }}</span>
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+            <div class="h-full rounded bg-violet-500 transition-all duration-500" :style="{ width: `${pklProgress}%` }" />
+          </div>
+          <div v-if="pklOutputPath" class="mt-2 text-[10px] text-slate-500 break-all">{{ pklOutputPath }}</div>
+        </div>
+      </div>
+      <div class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/40 p-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-slate-400">最近导入记录</span>
+          <button
+            class="text-[10px] text-ocean-400 hover:text-ocean-300 transition"
+            @click="loadImportHistory"
+          >
+            刷新
+          </button>
+        </div>
+        <div v-if="importHistory.length === 0" class="mt-2 text-[10px] text-slate-500">
+          暂无导入记录
+        </div>
+        <div v-else class="mt-2 space-y-2">
+          <div
+            v-for="task in importHistory"
+            :key="task.task_id"
+            class="rounded border border-slate-800 bg-slate-950/40 px-2 py-2"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0 text-[11px] text-slate-300 truncate">
+                {{ task.filename || task.source }}
+              </div>
+              <div class="text-[10px]" :class="taskStatusClass(task.status)">
+                {{ taskStatusLabel(task.status) }}
+              </div>
+            </div>
+            <div class="mt-1 text-[10px] text-slate-500 truncate">{{ task.stage }}</div>
+            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+              <span>{{ formatTaskTime(task.updated_at) }}</span>
+              <span>{{ task.progress }}%</span>
+            </div>
+            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-600">
+              <span>{{ formatNumber(task.current_rows) }}<template v-if="task.total_rows > 0"> / {{ formatNumber(task.total_rows) }}</template></span>
+              <span v-if="task.status === 'completed'">{{ formatNumber(task.rows_inserted) }} 行</span>
+              <span v-else-if="task.status === 'failed'">失败</span>
+              <span v-else>{{ formatEta(task.eta_seconds) }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

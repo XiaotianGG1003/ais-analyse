@@ -25,10 +25,10 @@ async def get_track_statistics(
     query = text("""
         SELECT
             mmsi,
-            length(atTime(trip, tstzspan(:t_start, :t_end))) AS distance_m,
-            duration(atTime(trip, tstzspan(:t_start, :t_end))) AS duration_interval,
-            maxValue(speed(atTime(trip, tstzspan(:t_start, :t_end)))) AS max_speed_ms,
-            twAvg(speed(atTime(trip, tstzspan(:t_start, :t_end)))) AS avg_speed_ms
+            length(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true))) AS distance_m,
+            duration(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true))) AS duration_interval,
+            maxValue(speed(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true)))) AS max_speed_ms,
+            twAvg(speed(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true)))) AS avg_speed_ms
         FROM vessels
         WHERE mmsi = :mmsi
     """)
@@ -45,12 +45,20 @@ async def get_track_statistics(
 
     # 速度时序
     speed_query = text("""
-        SELECT (dp).timestamp AS ts, (dp).value AS speed_ms
-        FROM (
-            SELECT unnest(speed(atTime(trip, tstzspan(:t_start, :t_end)))) AS dp
-            FROM vessels WHERE mmsi = :mmsi
-        ) sub
-        ORDER BY ts
+        WITH s AS (
+            SELECT speed(atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true))) AS sp
+            FROM vessels
+            WHERE mmsi = :mmsi
+            ),
+        ts AS (
+            SELECT unnest(timestamps(sp)) AS ts, sp
+            FROM s
+        )
+        SELECT
+            ts,
+            valueAtTimestamp(sp, ts) AS speed_ms
+        FROM ts
+        ORDER BY ts;
     """)
     speed_result = await db.execute(
         speed_query, {"mmsi": mmsi, "t_start": start_time, "t_end": end_time}
