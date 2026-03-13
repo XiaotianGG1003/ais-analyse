@@ -59,6 +59,7 @@ const emit = defineEmits<{
   areaDetect: []
   predict: []
   calcDistance: [shipA: number, shipB: number]
+  toggleHeatmap: []
 }>()
 
 function onQueryTrack() {
@@ -437,6 +438,21 @@ const quickList = [
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           导出数据
+        </button>
+        <button
+          class="text-xs py-2 px-2 border rounded-md flex items-center justify-center gap-1.5 transition col-span-2"
+          :class="
+            store.heatmapVisible
+              ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+              : 'bg-navy-600 border-slate-700 text-slate-300 hover:bg-navy-500'
+          "
+          @click="emit('toggleHeatmap')"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          {{ store.heatmapVisible ? '关闭热力图' : '轨迹热力图' }}
         </button>
       </div>
     </div>

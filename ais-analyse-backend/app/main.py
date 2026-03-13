@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine
-from app.routers import vessels, analysis, data
+from app.routers import vessels, analysis, data, heatmap
 
 logger = logging.getLogger("uvicorn.error")
 settings = get_settings()
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(vessels.router)
 app.include_router(analysis.router)
 app.include_router(data.router)
+app.include_router(heatmap.router)
 
 
 @app.get("/health", tags=["system"])

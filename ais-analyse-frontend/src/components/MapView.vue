@@ -2,8 +2,10 @@
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet-draw'
+import 'leaflet.heat'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES } from '@/types'
+import * as api from '@/api'
 
 const store = useAppStore()
 
@@ -21,6 +23,11 @@ const mapZoom = ref(8)
 const mapCenterLat = ref(31.0)
 const mapCenterLng = ref(122.0)
 const trackCount = ref(0)
+
+// ---- Heatmap ----
+let heatmapLayer: L.Layer | null = null
+const heatmapVisible = ref(false)
+const heatmapLoading = ref(false)
 
 // ---- Ship SVG ----
 function getShipSVG(color: string, heading: number) {
@@ -374,8 +381,87 @@ onUnmounted(() => {
   if (map) map.remove()
 })
 
+// ---- Heatmap Functions ----
+async function toggleHeatmap() {
+  if (heatmapVisible.value) {
+    hideHeatmap()
+  } else {
+    await showHeatmap()
+  }
+}
+
+async function showHeatmap() {
+  if (!map) return
+  
+  heatmapLoading.value = true
+  store.showToast('正在加载热力图...', 'info')
+  
+  try {
+    const bounds = map.getBounds()
+    const data = await api.getTrajectoryHeatmap({
+      min_lat: bounds.getSouth(),
+      max_lat: bounds.getNorth(),
+      min_lon: bounds.getWest(),
+      max_lon: bounds.getEast(),
+    })
+    
+    if (data.points.length === 0) {
+      store.showToast('当前区域暂无轨迹数据', 'warning')
+      heatmapLoading.value = false
+      return
+    }
+    
+    // Remove existing heatmap
+    if (heatmapLayer) {
+      map.removeLayer(heatmapLayer)
+    }
+    
+    // Create heatmap data: [lat, lng, intensity]
+    // 添加更多原始点数据以增强热力图密度
+    const heatData = data.points.map((p) => [p.lat, p.lon, Math.max(p.intensity, 0.3)] as [number, number, number])
+    
+    // Create heatmap layer - 优化参数使效果更明显
+    heatmapLayer = (L as any).heatLayer(heatData, {
+      radius: 35,        // 增大半径，让热力点更明显
+      blur: 25,          // 增加模糊度，让渐变更平滑
+      maxZoom: 18,       // 在所有缩放级别都显示
+      max: 1.0,          // 最大值
+      minOpacity: 0.3,   // 最小透明度，让低强度区域也能看到
+      gradient: {
+        0.0: '#0000FF',  // 深蓝
+        0.2: '#00FFFF',  // 青色
+        0.4: '#00FF00',  // 绿色
+        0.6: '#FFFF00',  // 黄色
+        0.8: '#FF8C00',  // 深橙
+        1.0: '#FF0000',  // 红色
+      },
+    }).addTo(map)
+    
+    heatmapVisible.value = true
+    store.showToast(`热力图加载完成，共 ${data.total_points} 个热力点`, 'success')
+  } catch (err: any) {
+    store.showToast('热力图加载失败: ' + err.message, 'error')
+  } finally {
+    heatmapLoading.value = false
+  }
+}
+
+function hideHeatmap() {
+  if (heatmapLayer && map) {
+    map.removeLayer(heatmapLayer)
+    heatmapLayer = null
+  }
+  heatmapVisible.value = false
+}
+
+async function refreshHeatmap() {
+  if (heatmapVisible.value) {
+    await showHeatmap()
+  }
+}
+
 // Expose methods for parent
-defineExpose({ queryTrack, toggleAreaDraw, calcDistance, startPrediction, clearAreaDraw })
+defineExpose({ queryTrack, toggleAreaDraw, calcDistance, startPrediction, clearAreaDraw, toggleHeatmap, refreshHeatmap })
 </script>
 
 <template>
