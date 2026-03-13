@@ -146,3 +146,87 @@ export function predictTrajectory(mmsi: number, durationMinutes = 60) {
     `/vessels/${mmsi}/prediction?duration_minutes=${durationMinutes}`,
   )
 }
+
+/* ---- Data Import ---- */
+
+export interface ImportResult {
+  segments_inserted: number
+  rows_inserted: number
+  trips_rebuilt: boolean
+  source?: string
+}
+
+export interface ImportTaskStartResult {
+  task_id: string
+  status: string
+  stage: string
+  progress: number
+  source?: string
+}
+
+export interface ImportTaskStatus {
+  task_id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  stage: string
+  progress: number
+  source: string
+  filename: string | null
+  total_rows: number
+  current_rows: number
+  rows_inserted: number
+  segments_inserted: number
+  eta_seconds: number | null
+  mobility_status: 'queued' | 'running' | 'completed' | 'failed'
+  mobility_stage: string
+  mobility_progress: number
+  mobility_total_rows: number
+  mobility_current_rows: number
+  mobility_eta_seconds: number | null
+  pkl_status: 'queued' | 'running' | 'completed' | 'failed'
+  pkl_stage: string
+  pkl_progress: number
+  pkl_eta_seconds: number | null
+  pkl_sample_count: number
+  pkl_output_path: string | null
+  trips_rebuilt: boolean
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function importAisCsv(file: File, rebuildTrips = true): Promise<ImportTaskStartResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`/api/data/import-csv?rebuild_trips=${rebuildTrips}`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  return json.data
+}
+
+export async function importAisCsvByPath(filePath: string, rebuildTrips = true): Promise<ImportTaskStartResult> {
+  const res = await fetch(`${BASE}/data/import-path`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file_path: filePath, rebuild_trips: rebuildTrips }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  return json.data
+}
+
+export function getImportTask(taskId: string) {
+  return request<ImportTaskStatus>(`/data/import-tasks/${encodeURIComponent(taskId)}`)
+}
+
+export function listImportTasks(limit = 6) {
+  return request<ImportTaskStatus[]>(`/data/import-tasks?limit=${limit}`)
+}
