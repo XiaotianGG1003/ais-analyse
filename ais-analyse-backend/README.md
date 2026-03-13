@@ -303,7 +303,7 @@ GET /api/vessels/search?keyword={keyword}&limit={limit}
 ---
 
 ### 8.3 船舶列表
-
+~~
 ```
 GET /api/vessels?page={page}&page_size={size}&vessel_type={type}
 ```
