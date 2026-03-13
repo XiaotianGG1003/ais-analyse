@@ -1,4 +1,4 @@
-const BASE = '/api'
+const BASE = 'http://127.0.0.1:8000/api'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(BASE + url, {
@@ -229,4 +229,45 @@ export function getImportTask(taskId: string) {
 
 export function listImportTasks(limit = 6) {
   return request<ImportTaskStatus[]>(`/data/import-tasks?limit=${limit}`)
+}
+
+/* ---- Heatmap ---- */
+
+export interface HeatmapPoint {
+  lat: number
+  lon: number
+  intensity: number
+}
+
+export interface HeatmapResponse {
+  points: HeatmapPoint[]
+  total_points: number
+  bounds: {
+    min_lat: number
+    max_lat: number
+    min_lon: number
+    max_lon: number
+  }
+}
+
+export function getTrajectoryHeatmap(
+  bounds: { min_lat: number; max_lat: number; min_lon: number; max_lon: number },
+  startTime?: string,
+  endTime?: string,
+  granularity = 60,
+) {
+  let url = `/heatmap/trajectory?min_lat=${bounds.min_lat}&max_lat=${bounds.max_lat}&min_lon=${bounds.min_lon}&max_lon=${bounds.max_lon}&granularity=${granularity}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<HeatmapResponse>(url)
+}
+
+export function getVesselsDensity(bounds: {
+  min_lat: number
+  max_lat: number
+  min_lon: number
+  max_lon: number
+}) {
+  const url = `/heatmap/vessels-density?min_lat=${bounds.min_lat}&max_lat=${bounds.max_lat}&min_lon=${bounds.min_lon}&max_lon=${bounds.max_lon}`
+  return request<HeatmapResponse>(url)
 }

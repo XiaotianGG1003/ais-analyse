@@ -15,6 +15,7 @@
     "@element-plus/icons-vue": "^2.3.1",
     "leaflet": "^1.9.4",
     "leaflet-draw": "^1.0.4",
+    "leaflet.heat": "^0.2.0",
     "echarts": "^5.5.0",
     "vue-echarts": "^7.0.3",
     "axios": "^1.7.9"

@@ -25,6 +25,10 @@ function onPredict() {
 function onCalcDistance(shipA: number, shipB: number) {
   mapViewRef.value?.calcDistance(shipA, shipB)
 }
+
+function onToggleHeatmap() {
+  mapViewRef.value?.toggleHeatmap()
+}
 </script>
 
 <template>
@@ -37,6 +41,7 @@ function onCalcDistance(shipA: number, shipB: number) {
         @area-detect="onAreaDetect"
         @predict="onPredict"
         @calc-distance="onCalcDistance"
+        @toggle-heatmap="onToggleHeatmap"
       />
       <MapView ref="mapViewRef" />
       <RightPanel />

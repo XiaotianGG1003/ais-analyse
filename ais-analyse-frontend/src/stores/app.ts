@@ -57,6 +57,9 @@ export const useAppStore = defineStore('app', () => {
   // Prediction
   const predictionResult = ref<PredictionResultData | null>(null)
 
+  // Heatmap
+  const heatmapVisible = ref(false)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -307,6 +310,7 @@ export const useAppStore = defineStore('app', () => {
     distanceShipB,
     distanceResult,
     predictionResult,
+    heatmapVisible,
     toasts,
     showToast,
     selectShip,
