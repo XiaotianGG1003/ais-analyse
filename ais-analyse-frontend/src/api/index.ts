@@ -231,6 +231,37 @@ export function listImportTasks(limit = 6) {
   return request<ImportTaskStatus[]>(`/data/import-tasks?limit=${limit}`)
 }
 
+/* ---- Stop Detection ---- */
+
+export interface StopPoint {
+  startTime: string
+  endTime: string
+  durationMinutes: number
+  lat: number
+  lon: number
+  pointCount: number
+}
+
+export interface StopDetectionResponse {
+  mmsi: number
+  stop_count: number
+  total_duration_minutes: number
+  stops: StopPoint[]
+}
+
+export function getStopPoints(
+  mmsi: number,
+  distanceThresholdM: number,
+  timeThresholdMinutes: number,
+  startTime?: string,
+  endTime?: string,
+) {
+  let url = `/stops/${mmsi}?distance_threshold_m=${distanceThresholdM}&time_threshold_minutes=${timeThresholdMinutes}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<StopDetectionResponse>(url)
+}
+
 /* ---- Heatmap ---- */
 
 export interface HeatmapPoint {

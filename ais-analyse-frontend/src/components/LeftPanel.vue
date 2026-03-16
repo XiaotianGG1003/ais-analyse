@@ -9,6 +9,9 @@ import type { ImportTaskStatus } from '@/api'
 const store = useAppStore()
 
 const distancePanelOpen = ref(false)
+const stopPanelOpen = ref(false)
+const stopDistance = ref(500)  // meters
+const stopTime = ref(30)       // minutes
 const activeQuick = ref('1h')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -60,6 +63,7 @@ const emit = defineEmits<{
   predict: []
   calcDistance: [shipA: number, shipB: number]
   toggleHeatmap: []
+  detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
 }>()
 
 function onQueryTrack() {
@@ -97,6 +101,17 @@ function onExport() {
     return
   }
   store.showToast(store.selectedShip.vessel_name + ' 的数据已导出为 CSV', 'success')
+}
+
+function onDetectStops() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  stopPanelOpen.value = !stopPanelOpen.value
+  if (!stopPanelOpen.value) {
+    emit('detectStops', stopDistance.value, stopTime.value)
+  }
 }
 
 function onCalcDist() {
@@ -436,6 +451,16 @@ const quickList = [
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onDetectStops"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          停留点检测
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
           @click="onExport"
         >
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -656,6 +681,56 @@ const quickList = [
           @click="onCalcDist"
         >
           计算距离
+        </button>
+      </div>
+    </div>
+
+    <!-- Stop Detection Panel -->
+    <div v-if="stopPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">停留点检测参数</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="stopPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between mb-1">
+            <span class="text-[10px] text-slate-500">距离阈值</span>
+            <span class="text-[10px] text-slate-400">{{ stopDistance }} m</span>
+          </div>
+          <input
+            v-model.number="stopDistance"
+            type="range"
+            min="100"
+            max="1000"
+            step="100"
+            class="w-full accent-ocean-500"
+          />
+        </div>
+        <div>
+          <div class="flex justify-between mb-1">
+            <span class="text-[10px] text-slate-500">时间阈值</span>
+            <span class="text-[10px] text-slate-400">{{ stopTime }} min</span>
+          </div>
+          <input
+            v-model.number="stopTime"
+            type="range"
+            min="5"
+            max="120"
+            step="5"
+            class="w-full accent-ocean-500"
+          />
+        </div>
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+          @click="onDetectStops"
+        >
+          开始检测
         </button>
       </div>
     </div>

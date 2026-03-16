@@ -29,6 +29,10 @@ function onCalcDistance(shipA: number, shipB: number) {
 function onToggleHeatmap() {
   mapViewRef.value?.toggleHeatmap()
 }
+
+function onDetectStops(distanceThresholdM: number, timeThresholdMinutes: number) {
+  store.fetchStopDetection(distanceThresholdM, timeThresholdMinutes)
+}
 </script>
 
 <template>
@@ -42,6 +46,7 @@ function onToggleHeatmap() {
         @predict="onPredict"
         @calc-distance="onCalcDistance"
         @toggle-heatmap="onToggleHeatmap"
+        @detect-stops="onDetectStops"
       />
       <MapView ref="mapViewRef" />
       <RightPanel />

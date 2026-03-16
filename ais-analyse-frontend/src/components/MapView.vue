@@ -15,6 +15,7 @@ const shipMarkers: Record<number, L.Marker> = {}
 const trackLayers: Record<number, L.LayerGroup> = {}
 let predictionLayer: L.LayerGroup | null = null
 let distanceLine: L.LayerGroup | null = null
+let stopPointLayers: L.LayerGroup | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
@@ -348,16 +349,82 @@ async function startPrediction() {
   predictionLayer = predGroup
 }
 
+// ---- Stop Detection ----
+function renderStopPoints() {
+  clearStopPoints()
+  if (!store.stopDetectionResult?.stops.length) return
+
+  const stops = store.stopDetectionResult.stops
+  stopPointLayers = L.layerGroup()
+
+  stops.forEach((stop, index) => {
+    // Circle marker size based on duration
+    const radius = Math.max(8, Math.min(20, 8 + stop.durationMinutes / 10))
+
+    const marker = L.circleMarker([stop.lat, stop.lon], {
+      radius,
+      fillColor: '#F97316',
+      color: '#FDBA74',
+      weight: 2,
+      opacity: 0.8,
+      fillOpacity: 0.6,
+    }).addTo(stopPointLayers!)
+
+    // Format duration
+    const hours = Math.floor(stop.durationMinutes / 60)
+    const mins = Math.round(stop.durationMinutes % 60)
+    const durationStr = hours > 0 ? `${hours}小时${mins}分` : `${mins}分钟`
+
+    marker.bindPopup(`
+      <div style="font-family: 'Inter', sans-serif; min-width: 180px;">
+        <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">停留点 #${index + 1}</div>
+        <div style="font-size: 11px; color: #94a3b8;">开始: ${new Date(stop.startTime).toLocaleString()}</div>
+        <div style="font-size: 11px; color: #94a3b8;">结束: ${new Date(stop.endTime).toLocaleString()}</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">时长: <span style="color: #F97316; font-weight: 500;">${durationStr}</span></div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${stop.pointCount} 个轨迹点</div>
+      </div>
+    `)
+  })
+
+  stopPointLayers.addTo(map)
+
+  // Fit bounds to show all stops
+  const bounds = stops.map((s) => [s.lat, s.lon])
+  if (bounds.length > 0) {
+    map.fitBounds(bounds as L.LatLngExpression[], { padding: [50, 50] })
+  }
+}
+
+function clearStopPoints() {
+  if (stopPointLayers) {
+    map.removeLayer(stopPointLayers)
+    stopPointLayers = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
   (mmsi) => {
+    clearStopPoints()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
         map.setView([ship.position.lat, ship.position.lon], Math.max(map.getZoom(), 9))
         drawTrack(ship.mmsi)
       }
+    }
+  },
+)
+
+// Watch stop detection result
+watch(
+  () => store.stopDetectionResult,
+  (result) => {
+    if (result) {
+      renderStopPoints()
+    } else {
+      clearStopPoints()
     }
   },
 )

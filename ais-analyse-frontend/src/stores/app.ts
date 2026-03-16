@@ -60,6 +60,21 @@ export const useAppStore = defineStore('app', () => {
   // Heatmap
   const heatmapVisible = ref(false)
 
+  // Stop Detection
+  const stopDetectionResult = ref<{
+    vesselName: string
+    stopCount: number
+    totalDurationMinutes: number
+    stops: Array<{
+      startTime: string
+      endTime: string
+      durationMinutes: number
+      lat: number
+      lon: number
+      pointCount: number
+    }>
+  } | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -80,6 +95,7 @@ export const useAppStore = defineStore('app', () => {
     areaDetectionResult.value = null
     distanceResult.value = null
     predictionResult.value = null
+    stopDetectionResult.value = null
     if (mmsi) {
       rightPanelOpen.value = true
       activeRightTab.value = 'detail'
@@ -283,6 +299,39 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 停留点检测 */
+  async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
+    const ship = selectedShip.value
+    if (!ship || !timeStart.value || !timeEnd.value) return
+    showToast(`正在检测 ${ship.vessel_name} 的停留点…`, 'info')
+    try {
+      const res = await api.getStopPoints(
+        ship.mmsi,
+        distanceThreshold,
+        timeThreshold,
+        new Date(timeStart.value).toISOString(),
+        new Date(timeEnd.value).toISOString(),
+      )
+      stopDetectionResult.value = {
+        vesselName: ship.vessel_name,
+        stopCount: res.stop_count,
+        totalDurationMinutes: res.total_duration_minutes,
+        stops: res.stops.map((s) => ({
+          startTime: s.startTime,
+          endTime: s.endTime,
+          durationMinutes: s.durationMinutes,
+          lat: s.lat,
+          lon: s.lon,
+          pointCount: s.pointCount,
+        })),
+      }
+      activeRightTab.value = 'analysis'
+      showToast(`发现 ${res.stop_count} 个停留点，总停留 ${Math.round(res.total_duration_minutes)} 分钟`, 'success')
+    } catch (e: unknown) {
+      showToast('停留点检测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
   /** 按 MMSI 查询船舶详情并选中 */
   async function queryVesselByMMSI(raw: string) {
     const keyword = raw.trim()
@@ -388,6 +437,7 @@ export const useAppStore = defineStore('app', () => {
     distanceShipB,
     distanceResult,
     predictionResult,
+    stopDetectionResult,
     heatmapVisible,
     toasts,
     showToast,
@@ -398,6 +448,7 @@ export const useAppStore = defineStore('app', () => {
     fetchAreaDetection,
     fetchDistance,
     fetchPrediction,
+    fetchStopDetection,
     toggleLeftPanel,
     toggleRightPanel,
   }

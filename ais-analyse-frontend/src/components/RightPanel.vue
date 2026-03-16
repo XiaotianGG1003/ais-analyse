@@ -168,14 +168,15 @@ function renderSOGDistChart() {
   })
 }
 
-function clearAnalysisItem(item: 'area' | 'distance' | 'prediction') {
+function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'stops') {
   if (item === 'area') store.areaDetectionResult = null
   if (item === 'distance') store.distanceResult = null
   if (item === 'prediction') store.predictionResult = null
+  if (item === 'stops') store.stopDetectionResult = null
 }
 
 const hasAnalysis = () =>
-  store.areaDetectionResult || store.distanceResult || store.predictionResult
+  store.areaDetectionResult || store.distanceResult || store.predictionResult || store.stopDetectionResult
 
 window.addEventListener('resize', handleResize)
 onUnmounted(() => {
@@ -723,6 +724,66 @@ onUnmounted(() => {
                 <p class="text-[10px] text-amber-400/70">
                   ⚠ 预测结果仅供参考，实际航行可能受风浪、洋流、避让等因素影响。
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stop Detection Result -->
+        <div v-if="store.stopDetectionResult" class="space-y-3 mt-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+              </svg>
+              停留点检测结果
+            </h4>
+            <button
+              class="text-slate-500 hover:text-slate-300"
+              @click="clearAnalysisItem('stops')"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-6 h-6 rounded-full bg-orange-500/20 flex items-center justify-center">
+                <svg width="14" height="14" fill="none" stroke="#F97316" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              </div>
+              <span class="text-sm font-medium text-orange-400">
+                {{ store.stopDetectionResult.stopCount }} 个停留点
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400 mb-2">
+              总停留时长: {{ Math.round(store.stopDetectionResult.totalDurationMinutes) }} 分钟
+            </div>
+            <div class="space-y-2 max-h-60 overflow-y-auto">
+              <div
+                v-for="(stop, index) in store.stopDetectionResult.stops"
+                :key="index"
+                class="rounded-lg bg-slate-800/50 p-2.5 border border-slate-700/30"
+              >
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-medium text-slate-300">停留点 #{{ index + 1 }}</span>
+                  <span class="text-[10px] text-orange-400">
+                    {{ Math.floor(stop.durationMinutes / 60) }}h {{ Math.round(stop.durationMinutes % 60) }}m
+                  </span>
+                </div>
+                <div class="text-[10px] text-slate-500">
+                  <div>{{ new Date(stop.startTime).toLocaleString() }} - {{ new Date(stop.endTime).toLocaleTimeString() }}</div>
+                  <div class="mt-0.5 font-mono text-slate-400">
+                    {{ stop.lon.toFixed(4) }}°E, {{ stop.lat.toFixed(4) }}°N
+                  </div>
+                  <div class="mt-0.5 text-slate-600">{{ stop.pointCount }} 个轨迹点</div>
+                </div>
               </div>
             </div>
           </div>
