@@ -101,18 +101,18 @@ function renderShips() {
 
     marker.bindPopup(
       `<div style="min-width:200px; font-family:'Inter',sans-serif;">
-        <div style="font-size:14px; font-weight:600; color:#f1f5f9; margin-bottom:6px;">${ship.vessel_name}</div>
+        <div style="font-size:14px; font-weight:600; color:#111827; margin-bottom:6px;">${ship.vessel_name}</div>
         <div style="display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12px;">
-          <span style="color:#64748b;">MMSI</span><span style="color:#e2e8f0; font-family:monospace;">${ship.mmsi}</span>
-          <span style="color:#64748b;">类型</span><span style="color:#e2e8f0;">${VESSEL_TYPES[ship.vessel_type] || '未知'}</span>
-          <span style="color:#64748b;">航速</span><span style="color:#38bdf8; font-family:monospace;">${ship.position.sog} kn</span>
-          <span style="color:#64748b;">航向</span><span style="color:#e2e8f0; font-family:monospace;">${ship.position.cog}°</span>
+          <span style="color:#4b5563;">MMSI</span><span style="color:#111827; font-family:monospace; font-weight:500;">${ship.mmsi}</span>
+          <span style="color:#4b5563;">类型</span><span style="color:#111827;">${VESSEL_TYPES[ship.vessel_type] || '未知'}</span>
+          <span style="color:#4b5563;">航速</span><span style="color:#0284c7; font-family:monospace; font-weight:500;">${ship.position.sog} kn</span>
+          <span style="color:#4b5563;">航向</span><span style="color:#111827; font-family:monospace; font-weight:500;">${ship.position.cog}°</span>
         </div>
         <button onclick="window.__selectShip(${ship.mmsi})" style="margin-top:8px; width:100%; padding:6px; background:linear-gradient(135deg,#0EA5E9,#0284C7); color:white; border:none; border-radius:4px; font-size:12px; cursor:pointer;">
           查看详情
         </button>
       </div>`,
-      { className: 'dark-popup' },
+      { className: 'ship-popup' },
     )
 
     marker.on('click', () => store.selectShip(ship.mmsi))
@@ -377,11 +377,11 @@ function renderStopPoints() {
 
     marker.bindPopup(`
       <div style="font-family: 'Inter', sans-serif; min-width: 180px;">
-        <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">停留点 #${index + 1}</div>
-        <div style="font-size: 11px; color: #94a3b8;">开始: ${new Date(stop.startTime).toLocaleString()}</div>
-        <div style="font-size: 11px; color: #94a3b8;">结束: ${new Date(stop.endTime).toLocaleString()}</div>
-        <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">时长: <span style="color: #F97316; font-weight: 500;">${durationStr}</span></div>
-        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${stop.pointCount} 个轨迹点</div>
+        <div style="font-weight: 600; color: #111827; margin-bottom: 4px;">停留点 #${index + 1}</div>
+        <div style="font-size: 11px; color: #374151;">开始: ${new Date(stop.startTime).toLocaleString()}</div>
+        <div style="font-size: 11px; color: #374151;">结束: ${new Date(stop.endTime).toLocaleString()}</div>
+        <div style="font-size: 11px; color: #374151; margin-top: 4px;">时长: <span style="color: #ea580c; font-weight: 600;">${durationStr}</span></div>
+        <div style="font-size: 10px; color: #6b7280; margin-top: 2px;">${stop.pointCount} 个轨迹点</div>
       </div>
     `)
   })
