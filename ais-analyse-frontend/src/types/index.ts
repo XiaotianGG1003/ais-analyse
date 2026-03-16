@@ -4,6 +4,7 @@ export interface ShipPosition {
   sog: number
   cog: number
   heading: number
+  timestamp?: string | null
 }
 
 export interface Ship {

@@ -11,6 +11,13 @@ const sogDistChartEl = ref<HTMLDivElement>()
 let speedChart: echarts.ECharts | null = null
 let sogDistChart: echarts.ECharts | null = null
 
+function formatPositionTime(time?: string | null) {
+  if (!time) return '-'
+  const d = new Date(time)
+  if (Number.isNaN(d.getTime())) return time
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
+
 function handleResize() {
   speedChart?.resize()
   sogDistChart?.resize()
@@ -359,7 +366,7 @@ onUnmounted(() => {
 
           <div class="flex items-center justify-between bg-slate-800/30 rounded-lg px-3 py-2">
             <span class="text-[10px] text-slate-500">最后更新</span>
-            <span class="text-[10px] font-mono text-slate-400">2026-03-12 10:30:00</span>
+            <span class="text-[10px] font-mono text-slate-400">{{ formatPositionTime(store.selectedShip.position.timestamp) }}</span>
           </div>
         </div>
       </div>

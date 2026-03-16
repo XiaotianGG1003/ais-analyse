@@ -99,6 +99,7 @@ export const useAppStore = defineStore('app', () => {
               sog: detail.last_position.sog ?? 0,
               cog: detail.last_position.cog ?? 0,
               heading: detail.last_position.cog ?? 0,
+              timestamp: detail.last_position.timestamp,
             }
           }
         }
@@ -122,7 +123,7 @@ export const useAppStore = defineStore('app', () => {
         draft: 0,
         status: 0,
         cargo: 0,
-        position: { lat: 0, lon: 0, sog: 0, cog: 0, heading: 0 },
+        position: { lat: 0, lon: 0, sog: 0, cog: 0, heading: 0, timestamp: null },
         track: [],
         color: PALETTE[i % PALETTE.length],
       }))
@@ -146,6 +147,7 @@ export const useAppStore = defineStore('app', () => {
             sog: d.last_position!.sog ?? 0,
             cog: d.last_position!.cog ?? 0,
             heading: d.last_position!.cog ?? 0,
+            timestamp: d.last_position!.timestamp,
           }
         }
       })
@@ -281,6 +283,82 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 按 MMSI 查询船舶详情并选中 */
+  async function queryVesselByMMSI(raw: string) {
+    const keyword = raw.trim()
+    if (!/^\d{9}$/.test(keyword)) {
+      showToast('请输入9位MMSI', 'warning')
+      return
+    }
+
+    const mmsi = Number(keyword)
+    loading.value = true
+    try {
+      const detail = await api.getVesselDetail(mmsi)
+
+      let ship = ships.value.find((s) => s.mmsi === mmsi)
+      if (!ship) {
+        ship = {
+          mmsi,
+          vessel_name: detail.vessel_name || `Ship ${mmsi}`,
+          vessel_type: detail.vessel_type ?? 0,
+          imo: detail.imo || '',
+          call_sign: detail.call_sign || '',
+          length: detail.length ?? 0,
+          width: detail.width ?? 0,
+          draft: detail.draft ?? 0,
+          status: detail.status ?? 0,
+          cargo: 0,
+          position: {
+            lon: detail.last_position?.longitude ?? 0,
+            lat: detail.last_position?.latitude ?? 0,
+            sog: detail.last_position?.sog ?? 0,
+            cog: detail.last_position?.cog ?? 0,
+            heading: detail.last_position?.cog ?? 0,
+            timestamp: detail.last_position?.timestamp ?? null,
+          },
+          track: [],
+          color: PALETTE[ships.value.length % PALETTE.length],
+        }
+        ships.value.unshift(ship)
+      } else {
+        ship.vessel_name = detail.vessel_name || ship.vessel_name
+        ship.vessel_type = detail.vessel_type ?? ship.vessel_type
+        ship.imo = detail.imo || ''
+        ship.call_sign = detail.call_sign || ''
+        ship.length = detail.length ?? 0
+        ship.width = detail.width ?? 0
+        ship.draft = detail.draft ?? 0
+        ship.status = detail.status ?? 0
+        if (detail.last_position) {
+          ship.position = {
+            lon: detail.last_position.longitude,
+            lat: detail.last_position.latitude,
+            sog: detail.last_position.sog ?? 0,
+            cog: detail.last_position.cog ?? 0,
+            heading: detail.last_position.cog ?? 0,
+            timestamp: detail.last_position.timestamp,
+          }
+        }
+      }
+
+      selectedMMSI.value = mmsi
+      trackVisible.value = false
+      trackGeoJSON.value = null
+      trackStatistics.value = null
+      areaDetectionResult.value = null
+      distanceResult.value = null
+      predictionResult.value = null
+      rightPanelOpen.value = true
+      activeRightTab.value = 'detail'
+      showToast(`已加载 ${ship.vessel_name} 详情`, 'success')
+    } catch (e: unknown) {
+      showToast('查询失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    } finally {
+      loading.value = false
+    }
+  }
+
   function toggleLeftPanel() {
     leftPanelOpen.value = !leftPanelOpen.value
   }
@@ -314,6 +392,7 @@ export const useAppStore = defineStore('app', () => {
     toasts,
     showToast,
     selectShip,
+    queryVesselByMMSI,
     fetchShips,
     fetchTrack,
     fetchAreaDetection,

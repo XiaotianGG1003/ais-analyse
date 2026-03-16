@@ -70,6 +70,10 @@ function onQueryTrack() {
   emit('queryTrack')
 }
 
+async function onSearchVessel() {
+  await store.queryVesselByMMSI(store.searchKeyword)
+}
+
 function onAreaDetect() {
   if (!store.selectedShip) {
     store.showToast('请先选择船舶', 'warning')
@@ -327,11 +331,13 @@ const quickList = [
             class="w-full pl-8 py-1.5 text-xs rounded-md border border-slate-700 outline-none focus:border-ocean-500"
             style="background: #1a2332; color: #e2e8f0"
             v-model="store.searchKeyword"
+            @keyup.enter="onSearchVessel"
           />
         </div>
         <button
           class="px-3 py-1.5 text-xs font-medium text-white rounded-md"
           style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+          @click="onSearchVessel"
         >
           搜索
         </button>
