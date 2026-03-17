@@ -75,6 +75,22 @@ export const useAppStore = defineStore('app', () => {
     }>
   } | null>(null)
 
+  // Animation
+  const animationData = ref<{
+    mmsi: number
+    frames: Array<{
+      timestamp: string
+      lat: number
+      lon: number
+      sog: number
+      cog: number
+    }>
+    stepSeconds: number
+    currentFrameIndex: number
+    isPlaying: boolean
+  } | null>(null)
+  const animationTimer = ref<number | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -96,6 +112,12 @@ export const useAppStore = defineStore('app', () => {
     distanceResult.value = null
     predictionResult.value = null
     stopDetectionResult.value = null
+    // Clear animation
+    if (animationTimer.value) {
+      clearInterval(animationTimer.value)
+      animationTimer.value = null
+    }
+    animationData.value = null
     if (mmsi) {
       rightPanelOpen.value = true
       activeRightTab.value = 'detail'
@@ -299,6 +321,69 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 轨迹动画 */
+  async function fetchAnimationData(stepSeconds = 60) {
+    const ship = selectedShip.value
+    if (!ship || !timeStart.value || !timeEnd.value) return
+    showToast(`正在生成 ${ship.vessel_name} 的轨迹动画…`, 'info')
+    try {
+      const res = await api.getAnimationFrames(
+        ship.mmsi,
+        new Date(timeStart.value).toISOString(),
+        new Date(timeEnd.value).toISOString(),
+        stepSeconds,
+      )
+      animationData.value = {
+        mmsi: ship.mmsi,
+        frames: res.frames,
+        stepSeconds: res.step_seconds,
+        currentFrameIndex: 0,
+        isPlaying: false,
+      }
+      showToast(`已生成 ${res.frame_count} 帧动画数据`, 'success')
+    } catch (e: unknown) {
+      showToast('动画数据生成失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function startAnimation() {
+    if (!animationData.value || animationData.value.frames.length === 0) return
+    animationData.value.isPlaying = true
+    // Start playback timer
+    const intervalMs = (animationData.value.stepSeconds * 1000) / 2 // 2x speed
+    animationTimer.value = window.setInterval(() => {
+      if (!animationData.value) return
+      if (animationData.value.currentFrameIndex >= animationData.value.frames.length - 1) {
+        // Loop or stop at end
+        animationData.value.currentFrameIndex = 0
+      } else {
+        animationData.value.currentFrameIndex++
+      }
+    }, intervalMs) as unknown as number
+  }
+
+  function pauseAnimation() {
+    if (animationTimer.value) {
+      clearInterval(animationTimer.value)
+      animationTimer.value = null
+    }
+    if (animationData.value) {
+      animationData.value.isPlaying = false
+    }
+  }
+
+  function stopAnimation() {
+    pauseAnimation()
+    if (animationData.value) {
+      animationData.value.currentFrameIndex = 0
+    }
+  }
+
+  function setAnimationFrame(index: number) {
+    if (!animationData.value) return
+    animationData.value.currentFrameIndex = Math.max(0, Math.min(index, animationData.value.frames.length - 1))
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -438,6 +523,7 @@ export const useAppStore = defineStore('app', () => {
     distanceResult,
     predictionResult,
     stopDetectionResult,
+    animationData,
     heatmapVisible,
     toasts,
     showToast,
@@ -449,6 +535,11 @@ export const useAppStore = defineStore('app', () => {
     fetchDistance,
     fetchPrediction,
     fetchStopDetection,
+    fetchAnimationData,
+    startAnimation,
+    pauseAnimation,
+    stopAnimation,
+    setAnimationFrame,
     toggleLeftPanel,
     toggleRightPanel,
   }

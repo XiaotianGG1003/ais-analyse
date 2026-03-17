@@ -12,6 +12,8 @@ const distancePanelOpen = ref(false)
 const stopPanelOpen = ref(false)
 const stopDistance = ref(500)  // meters
 const stopTime = ref(30)       // minutes
+const animationPanelOpen = ref(false)
+const animationStep = ref(60)  // seconds
 const activeQuick = ref('1h')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -64,6 +66,7 @@ const emit = defineEmits<{
   calcDistance: [shipA: number, shipB: number]
   toggleHeatmap: []
   detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
+  toggleAnimation: []
 }>()
 
 function onQueryTrack() {
@@ -112,6 +115,19 @@ function onDetectStops() {
   if (!stopPanelOpen.value) {
     emit('detectStops', stopDistance.value, stopTime.value)
   }
+}
+
+function onToggleAnimation() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  animationPanelOpen.value = !animationPanelOpen.value
+  emit('toggleAnimation')
+}
+
+async function onLoadAnimation() {
+  await store.fetchAnimationData(animationStep.value)
 }
 
 function onCalcDist() {
@@ -451,6 +467,15 @@ const quickList = [
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleAnimation"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          轨迹回放
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
           @click="onDetectStops"
         >
           <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -732,6 +757,88 @@ const quickList = [
         >
           开始检测
         </button>
+      </div>
+    </div>
+
+    <!-- Animation Panel -->
+    <div v-if="animationPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">轨迹动画回放</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="animationPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between mb-1">
+            <span class="text-[10px] text-slate-500">时间步长</span>
+            <span class="text-[10px] text-slate-400">{{ animationStep }} 秒</span>
+          </div>
+          <input
+            v-model.number="animationStep"
+            type="range"
+            min="10"
+            max="300"
+            step="10"
+            class="w-full accent-ocean-500"
+          />
+        </div>
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+          @click="onLoadAnimation"
+        >
+          生成动画
+        </button>
+        <!-- Playback Controls -->
+        <div v-if="store.animationData" class="pt-2 border-t border-slate-700/30">
+          <div class="flex items-center justify-center gap-3 mb-2">
+            <button
+              class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 hover:bg-slate-600"
+              @click="store.stopAnimation()"
+            >
+              <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" />
+              </svg>
+            </button>
+            <button
+              v-if="!store.animationData.isPlaying"
+              class="w-10 h-10 rounded-full bg-ocean-500 flex items-center justify-center text-white hover:bg-ocean-400"
+              @click="store.startAnimation()"
+            >
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+            </button>
+            <button
+              v-else
+              class="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white hover:bg-amber-400"
+              @click="store.pauseAnimation()"
+            >
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
+              </svg>
+            </button>
+          </div>
+          <!-- Progress Bar -->
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-slate-500 w-8 text-right">
+              {{ store.animationData.currentFrameIndex + 1 }}/{{ store.animationData.frames.length }}
+            </span>
+            <input
+              type="range"
+              :min="0"
+              :max="store.animationData.frames.length - 1"
+              :value="store.animationData.currentFrameIndex"
+              @input="(e) => store.setAnimationFrame(Number((e.target as HTMLInputElement).value))"
+              class="flex-1 accent-ocean-500"
+            />
+          </div>
+        </div>
       </div>
     </div>
 

@@ -33,6 +33,10 @@ function onToggleHeatmap() {
 function onDetectStops(distanceThresholdM: number, timeThresholdMinutes: number) {
   store.fetchStopDetection(distanceThresholdM, timeThresholdMinutes)
 }
+
+function onToggleAnimation() {
+  // Animation panel toggled, MapView will watch for animationData changes
+}
 </script>
 
 <template>
@@ -47,6 +51,7 @@ function onDetectStops(distanceThresholdM: number, timeThresholdMinutes: number)
         @calc-distance="onCalcDistance"
         @toggle-heatmap="onToggleHeatmap"
         @detect-stops="onDetectStops"
+        @toggle-animation="onToggleAnimation"
       />
       <MapView ref="mapViewRef" />
       <RightPanel />

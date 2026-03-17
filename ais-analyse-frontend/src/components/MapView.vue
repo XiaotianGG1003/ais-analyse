@@ -16,6 +16,9 @@ const trackLayers: Record<number, L.LayerGroup> = {}
 let predictionLayer: L.LayerGroup | null = null
 let distanceLine: L.LayerGroup | null = null
 let stopPointLayers: L.LayerGroup | null = null
+let animationLayer: L.LayerGroup | null = null
+let animationShipMarker: L.Marker | null = null
+let animationTrailLayer: L.Polyline | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
@@ -402,11 +405,95 @@ function clearStopPoints() {
   }
 }
 
+// ---- Animation ----
+function initAnimation() {
+  if (!store.animationData) return
+  clearAnimation()
+  
+  animationLayer = L.layerGroup()
+  
+  // Create ship marker for animation
+  const frame = store.animationData.frames[0]
+  const ship = store.selectedShip
+  const color = ship?.color || '#0EA5E9'
+  
+  animationShipMarker = L.marker([frame.lat, frame.lon], {
+    icon: createShipIcon(color, frame.cog),
+    zIndexOffset: 2000,
+  }).addTo(animationLayer)
+  
+  // Add initial tooltip
+  animationShipMarker.bindTooltip(
+    `<div style="font-size:11px;">
+      <div style="font-weight:600;">${ship?.vessel_name || ''}</div>
+      <div>${new Date(frame.timestamp).toLocaleTimeString()}</div>
+      <div>航速: ${frame.sog.toFixed(1)} kn</div>
+    </div>`,
+    { permanent: true, direction: 'top', className: 'animation-tooltip' }
+  )
+  
+  animationLayer.addTo(map)
+}
+
+function updateAnimationFrame() {
+  if (!store.animationData || !animationShipMarker || !animationLayer) return
+  
+  const { frames, currentFrameIndex } = store.animationData
+  const frame = frames[currentFrameIndex]
+  if (!frame) return
+  
+  const ship = store.selectedShip
+  const color = ship?.color || '#0EA5E9'
+  
+  // Update marker position and rotation
+  animationShipMarker.setLatLng([frame.lat, frame.lon])
+  animationShipMarker.setIcon(createShipIcon(color, frame.cog))
+  
+  // Update tooltip content
+  animationShipMarker.setTooltipContent(
+    `<div style="font-size:11px;">
+      <div style="font-weight:600;">${ship?.vessel_name || ''}</div>
+      <div>${new Date(frame.timestamp).toLocaleTimeString()}</div>
+      <div>航速: ${frame.sog.toFixed(1)} kn</div>
+    </div>`
+  )
+  
+  // Draw trail (last 10 points)
+  const trailStart = Math.max(0, currentFrameIndex - 10)
+  const trailPoints = frames.slice(trailStart, currentFrameIndex + 1).map(f => [f.lat, f.lon])
+  
+  if (animationTrailLayer) {
+    animationLayer.removeLayer(animationTrailLayer)
+  }
+  
+  if (trailPoints.length > 1) {
+    animationTrailLayer = L.polyline(trailPoints, {
+      color: color,
+      weight: 3,
+      opacity: 0.6,
+      dashArray: '5, 5',
+    }).addTo(animationLayer)
+  }
+  
+  // Pan map to follow ship
+  map.panTo([frame.lat, frame.lon], { animate: true, duration: 0.3 })
+}
+
+function clearAnimation() {
+  if (animationLayer) {
+    map.removeLayer(animationLayer)
+    animationLayer = null
+  }
+  animationShipMarker = null
+  animationTrailLayer = null
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
   (mmsi) => {
     clearStopPoints()
+    clearAnimation()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -426,6 +513,27 @@ watch(
     } else {
       clearStopPoints()
     }
+  },
+)
+
+// Watch animation data
+watch(
+  () => store.animationData,
+  (data) => {
+    if (data && data.frames.length > 0) {
+      initAnimation()
+      updateAnimationFrame()
+    } else {
+      clearAnimation()
+    }
+  },
+)
+
+// Watch animation frame index
+watch(
+  () => store.animationData?.currentFrameIndex,
+  () => {
+    updateAnimationFrame()
   },
 )
 

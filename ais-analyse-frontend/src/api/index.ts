@@ -302,3 +302,43 @@ export function getVesselsDensity(bounds: {
   const url = `/heatmap/vessels-density?min_lat=${bounds.min_lat}&max_lat=${bounds.max_lat}&min_lon=${bounds.min_lon}&max_lon=${bounds.max_lon}`
   return request<HeatmapResponse>(url)
 }
+
+/* ---- Animation ---- */
+
+export interface AnimationFrame {
+  timestamp: string
+  lat: number
+  lon: number
+  sog: number
+  cog: number
+}
+
+export interface AnimationData {
+  mmsi: number
+  frame_count: number
+  start_time: string
+  end_time: string
+  step_seconds: number
+  frames: AnimationFrame[]
+}
+
+export interface TrajectoryTimeRange {
+  mmsi: number
+  start_time: string
+  end_time: string
+  point_count: number
+}
+
+export function getAnimationFrames(
+  mmsi: number,
+  startTime: string,
+  endTime: string,
+  stepSeconds = 60,
+) {
+  const url = `/animation/${mmsi}/frames?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&step_seconds=${stepSeconds}`
+  return request<AnimationData>(url)
+}
+
+export function getTrajectoryTimeRange(mmsi: number) {
+  return request<TrajectoryTimeRange>(`/animation/${mmsi}/range`)
+}
