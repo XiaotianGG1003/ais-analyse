@@ -218,6 +218,30 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 仅查询航行统计（不依赖轨迹渲染） */
+  async function fetchTrackStatistics() {
+    const ship = selectedShip.value
+    if (!ship || !timeStart.value || !timeEnd.value) return
+    showToast(`正在查询 ${ship.vessel_name} 的航行统计…`, 'info')
+    try {
+      const startISO = new Date(timeStart.value).toISOString()
+      const endISO = new Date(timeEnd.value).toISOString()
+      const s = await api.getTrackStatistics(ship.mmsi, startISO, endISO)
+      trackStatistics.value = {
+        distance: s.distance_km.toFixed(1),
+        duration: s.duration_hours.toFixed(1),
+        maxSpeed: s.max_speed_knots.toFixed(1),
+        avgSpeed: s.avg_speed_knots.toFixed(1),
+        speedSeries: s.speed_series,
+      }
+      rightPanelOpen.value = true
+      activeRightTab.value = 'stats'
+      showToast('航行统计查询成功', 'success')
+    } catch (e: unknown) {
+      showToast('航行统计查询失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
   /** 区域检测 */
   async function fetchAreaDetection(areaPoly: GeoJSON.Polygon) {
     const ship = selectedShip.value
@@ -445,6 +469,7 @@ export const useAppStore = defineStore('app', () => {
     queryVesselByMMSI,
     fetchShips,
     fetchTrack,
+    fetchTrackStatistics,
     fetchAreaDetection,
     fetchDistance,
     fetchPrediction,

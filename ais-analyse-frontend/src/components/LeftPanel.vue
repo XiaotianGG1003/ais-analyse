@@ -74,6 +74,14 @@ function onQueryTrack() {
   emit('queryTrack')
 }
 
+async function onQueryStats() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  await store.fetchTrackStatistics()
+}
+
 async function onSearchVessel() {
   await store.queryVesselByMMSI(store.searchKeyword)
 }
@@ -407,6 +415,17 @@ const quickList = [
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
           </svg>
           查询轨迹
+        </span>
+      </button>
+      <button
+        class="w-full mt-2 py-1.5 text-xs font-medium rounded-md border border-ocean-500/30 text-ocean-300 hover:bg-ocean-500/10 transition"
+        @click="onQueryStats"
+      >
+        <span class="flex items-center justify-center gap-1.5">
+          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+          查询统计
         </span>
       </button>
     </div>
