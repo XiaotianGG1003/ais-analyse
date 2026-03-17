@@ -2,7 +2,6 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES } from '@/types'
-import { formatDateTimeLocal } from '@/utils/geo'
 import { getImportTask, importAisCsv, importAisCsvByPath, listImportTasks } from '@/api'
 import type { ImportTaskStatus } from '@/api'
 
@@ -14,7 +13,7 @@ const stopDistance = ref(500)  // meters
 const stopTime = ref(30)       // minutes
 const animationPanelOpen = ref(false)
 const animationStep = ref(60)  // seconds
-const activeQuick = ref('1h')
+const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
 const importPath = ref('')
@@ -40,24 +39,9 @@ const pklOutputPath = ref('')
 const importHistory = ref<ImportTaskStatus[]>([])
 let importPollTimer: number | null = null
 
-function setQuickTime(period: string) {
-  activeQuick.value = period
-  const now = new Date('2026-03-12T12:00:00')
-  let ms = 0
-  switch (period) {
-    case '1h': ms = 3600000; break
-    case '6h': ms = 6 * 3600000; break
-    case '24h': ms = 24 * 3600000; break
-    case '7d': ms = 7 * 24 * 3600000; break
-  }
-  const start = new Date(now.getTime() - ms)
-  store.timeStart = formatDateTimeLocal(start)
-  store.timeEnd = formatDateTimeLocal(now)
-}
-
 // Init default time range
-store.timeStart = '2026-03-12T00:00'
-store.timeEnd = '2026-03-12T23:59'
+store.timeStart = '2025-01-01T00:00'
+store.timeEnd = '2025-01-02T00:00'
 
 const emit = defineEmits<{
   queryTrack: []
@@ -75,14 +59,6 @@ function onQueryTrack() {
     return
   }
   emit('queryTrack')
-}
-
-async function onQueryStats() {
-  if (!store.selectedShip) {
-    store.showToast('请先选择船舶', 'warning')
-    return
-  }
-  await store.fetchTrackStatistics()
 }
 
 async function onSearchVessel() {
@@ -151,6 +127,10 @@ function onCalcDist() {
 
 function onImportClick() {
   fileInputRef.value?.click()
+}
+
+function onToggleImportDrawer() {
+  importDrawerOpen.value = !importDrawerOpen.value
 }
 
 function stopImportPolling() {
@@ -324,13 +304,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopImportPolling()
 })
-
-const quickList = [
-  { label: '1小时', value: '1h' },
-  { label: '6小时', value: '6h' },
-  { label: '24小时', value: '24h' },
-  { label: '7天', value: '7d' },
-]
 </script>
 
 <template>
@@ -355,68 +328,44 @@ const quickList = [
     <!-- Ship Search -->
     <div class="px-4 py-3 border-b border-slate-700/20">
       <label class="text-xs text-slate-500 font-medium mb-2 block">船舶查询</label>
-      <div class="flex gap-2">
-        <div class="relative flex-1">
-          <svg
-            class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="text"
-            placeholder="MMSI / 船名"
-            class="w-full pl-8 py-1.5 text-xs rounded-md border border-slate-700 outline-none focus:border-ocean-500"
-            style="background: #1a2332; color: #e2e8f0"
-            v-model="store.searchKeyword"
-            @keyup.enter="onSearchVessel"
-          />
-        </div>
-        <button
-          class="px-3 py-1.5 text-xs font-medium text-white rounded-md"
-          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
-          @click="onSearchVessel"
+      <div class="relative">
+        <svg
+          class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
-          搜索
-        </button>
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="text"
+          placeholder="MMSI / 船名（回车搜索）"
+          class="w-full pl-8 py-1.5 text-xs rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+          style="background: #1a2332; color: #e2e8f0"
+          v-model="store.searchKeyword"
+          @keyup.enter="onSearchVessel"
+        />
       </div>
     </div>
 
     <!-- Time Range -->
     <div class="px-4 py-3 border-b border-slate-700/20">
-      <label class="text-xs text-slate-500 font-medium mb-2 block">时间范围</label>
-      <div class="flex gap-1.5 mb-2 flex-wrap">
-        <button
-          v-for="q in quickList"
-          :key="q.value"
-          class="text-[11px] px-2.5 py-1 rounded border transition"
-          :class="
-            activeQuick === q.value
-              ? 'bg-ocean-500/20 text-ocean-400 border-ocean-500/30'
-              : 'bg-slate-700/50 text-slate-400 border-slate-600/30 hover:bg-slate-600/50'
-          "
-          @click="setQuickTime(q.value)"
-        >
-          {{ q.label }}
-        </button>
-      </div>
+      <label class="text-xs text-slate-500 font-medium mb-2 block">时间选择</label>
       <div class="space-y-2">
-        <div>
-          <span class="text-[10px] text-slate-500 mb-1 block">起始时间</span>
+        <div class="flex items-center">
+          <span class="text-[11px] text-slate-500 w-14 flex-shrink-0">起始时间</span>
           <input
             type="datetime-local"
             v-model="store.timeStart"
-            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            class="flex-1 text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
             style="background: #1a2332; color: #e2e8f0"
           />
         </div>
-        <div>
-          <span class="text-[10px] text-slate-500 mb-1 block">结束时间</span>
+        <div class="flex items-center">
+          <span class="text-[11px] text-slate-500 w-14 flex-shrink-0">结束时间</span>
           <input
             type="datetime-local"
             v-model="store.timeEnd"
-            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            class="flex-1 text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
             style="background: #1a2332; color: #e2e8f0"
           />
         </div>
@@ -433,23 +382,42 @@ const quickList = [
           查询轨迹
         </span>
       </button>
-      <button
-        class="w-full mt-2 py-1.5 text-xs font-medium rounded-md border border-ocean-500/30 text-ocean-300 hover:bg-ocean-500/10 transition"
-        @click="onQueryStats"
-      >
-        <span class="flex items-center justify-center gap-1.5">
-          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-          </svg>
-          查询统计
-        </span>
-      </button>
     </div>
 
     <!-- Tools -->
     <div class="px-4 py-3 border-b border-slate-700/20">
       <label class="text-xs text-slate-500 font-medium mb-2 block">分析工具</label>
       <div class="grid grid-cols-2 gap-2">
+                <!-- 数据导入 -->
+        <button
+          class="text-xs py-2 px-2 border rounded-md flex items-center justify-center gap-1.5 transition"
+          :class="
+            importDrawerOpen
+              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+              : 'bg-navy-600 border-slate-700 text-slate-300 hover:bg-navy-500'
+          "
+          @click="onToggleImportDrawer"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          {{ importDrawerOpen ? '关闭数据导入' : '数据导入' }}
+        </button>
+        
+        <!-- 数据导出 -->
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onExport"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          导出数据
+        </button>
         <button
           class="text-xs py-2 px-2 border rounded-md flex items-center justify-center gap-1.5 transition"
           :class="
@@ -503,19 +471,9 @@ const quickList = [
           </svg>
           停留点检测
         </button>
+
         <button
-          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
-          @click="onExport"
-        >
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          导出数据
-        </button>
-        <button
-          class="text-xs py-2 px-2 border rounded-md flex items-center justify-center gap-1.5 transition col-span-2"
+          class="text-xs py-2 px-2 border rounded-md flex items-center justify-center gap-1.5 transition"
           :class="
             store.heatmapVisible
               ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
@@ -529,155 +487,6 @@ const quickList = [
           </svg>
           {{ store.heatmapVisible ? '关闭热力图' : '轨迹热力图' }}
         </button>
-      </div>
-    </div>
-
-    <!-- Data Import -->
-    <div class="px-4 py-3 border-b border-slate-700/20">
-      <label class="text-xs text-slate-500 font-medium mb-2 block">数据导入</label>
-      <input
-        ref="fileInputRef"
-        type="file"
-        accept=".csv"
-        class="hidden"
-        @change="onFileSelected"
-      />
-      <button
-        class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 border transition"
-        :class="importing
-          ? 'border-slate-600 text-slate-500 cursor-not-allowed bg-slate-800'
-          : 'border-emerald-600/50 text-emerald-400 hover:bg-emerald-900/30 bg-transparent'"
-        :disabled="importing"
-        @click="onImportClick"
-      >
-        <svg v-if="!importing" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="17 8 12 3 7 8" />
-          <line x1="12" y1="3" x2="12" y2="15" />
-        </svg>
-        <svg v-else class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-        </svg>
-        {{ importing ? '执行两阶段处理中...' : '导入 AIS CSV（两阶段）' }}
-      </button>
-      <p class="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
-        阶段1：仅复制 CSV 到 ais_raw；阶段2：清洗/分段/插值后生成 pkl
-      </p>
-      <div class="mt-3 space-y-2">
-        <input
-          v-model="importPath"
-          type="text"
-          placeholder="例如：D:\\AIS\\ais_2025.csv"
-          class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
-          style="background: #1a2332; color: #e2e8f0"
-        />
-        <button
-          class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 transition"
-          :class="importing
-            ? 'bg-slate-700 border border-slate-600 text-slate-400 cursor-not-allowed'
-            : 'bg-ocean-500/10 border border-ocean-500/40 text-ocean-400 hover:bg-ocean-500/20'"
-          :disabled="importing"
-          @click="onImportByPath"
-        >
-          按路径导入大文件
-        </button>
-      </div>
-      <div v-if="importTaskId" class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/50 p-2.5">
-        <div class="flex items-center justify-between text-[10px] text-slate-400">
-          <span>任务总状态</span>
-          <span>{{ importProgress }}%</span>
-        </div>
-        <div class="mt-1 text-xs text-slate-300">{{ importStage || '等待执行' }}</div>
-        <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
-          <div
-            class="h-full rounded bg-ocean-500 transition-all duration-500"
-            :style="{ width: `${importProgress}%` }"
-          />
-        </div>
-        <div class="mt-2 text-[10px] text-slate-500 break-all">任务ID：{{ importTaskId }}</div>
-
-        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
-          <div class="flex items-center justify-between text-[10px] text-slate-400">
-            <span>1) 复制 CSV 到 ais_raw（不清洗）</span>
-            <span>{{ mobilityProgress }}%</span>
-          </div>
-          <div class="mt-1 text-[11px] text-slate-300">{{ mobilityStage }}</div>
-          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-            <span>已读行数</span>
-            <span>
-              {{ formatNumber(mobilityCurrentRows) }}
-              <template v-if="mobilityTotalRows > 0"> / {{ formatNumber(mobilityTotalRows) }}</template>
-            </span>
-          </div>
-          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-            <span>预计剩余</span>
-            <span>{{ mobilityStatus === 'completed' ? '导入完成' : formatEta(mobilityEtaSeconds) }}</span>
-          </div>
-          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
-            <div class="h-full rounded bg-emerald-500 transition-all duration-500" :style="{ width: `${mobilityProgress}%` }" />
-          </div>
-        </div>
-
-        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
-          <div class="flex items-center justify-between text-[10px] text-slate-400">
-            <span>2) 清洗分段并生成 pkl</span>
-            <span>{{ pklProgress }}%</span>
-          </div>
-          <div class="mt-1 text-[11px] text-slate-300">{{ pklStage }}</div>
-          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-            <span>预计剩余</span>
-            <span>{{ pklStatus === 'completed' ? '处理完成' : formatEta(pklEtaSeconds) }}</span>
-          </div>
-          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-            <span>样本数量</span>
-            <span>{{ formatNumber(pklSampleCount) }}</span>
-          </div>
-          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
-            <div class="h-full rounded bg-violet-500 transition-all duration-500" :style="{ width: `${pklProgress}%` }" />
-          </div>
-          <div v-if="pklOutputPath" class="mt-2 text-[10px] text-slate-500 break-all">{{ pklOutputPath }}</div>
-        </div>
-      </div>
-      <div class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/40 p-2.5">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] text-slate-400">最近导入记录</span>
-          <button
-            class="text-[10px] text-ocean-400 hover:text-ocean-300 transition"
-            @click="loadImportHistory"
-          >
-            刷新
-          </button>
-        </div>
-        <div v-if="importHistory.length === 0" class="mt-2 text-[10px] text-slate-500">
-          暂无导入记录
-        </div>
-        <div v-else class="mt-2 space-y-2">
-          <div
-            v-for="task in importHistory"
-            :key="task.task_id"
-            class="rounded border border-slate-800 bg-slate-950/40 px-2 py-2"
-          >
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0 text-[11px] text-slate-300 truncate">
-                {{ task.filename || task.source }}
-              </div>
-              <div class="text-[10px]" :class="taskStatusClass(task.status)">
-                {{ taskStatusLabel(task.status) }}
-              </div>
-            </div>
-            <div class="mt-1 text-[10px] text-slate-500 truncate">{{ task.stage }}</div>
-            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
-              <span>{{ formatTaskTime(task.updated_at) }}</span>
-              <span>{{ task.progress }}%</span>
-            </div>
-            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-600">
-              <span>{{ formatNumber(task.current_rows) }}<template v-if="task.total_rows > 0"> / {{ formatNumber(task.total_rows) }}</template></span>
-              <span v-if="task.status === 'completed'">{{ formatNumber(task.rows_inserted) }} 行</span>
-              <span v-else-if="task.status === 'failed'">失败</span>
-              <span v-else>{{ formatEta(task.eta_seconds) }}</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -856,6 +665,164 @@ const quickList = [
               @input="(e) => store.setAnimationFrame(Number((e.target as HTMLInputElement).value))"
               class="flex-1 accent-ocean-500"
             />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Panel -->
+    <div v-if="importDrawerOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">数据导入</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="importDrawerOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <input
+        ref="fileInputRef"
+        type="file"
+        accept=".csv"
+        class="hidden"
+        @change="onFileSelected"
+      />
+      <button
+        class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 border transition"
+        :class="importing
+          ? 'border-slate-600 text-slate-500 cursor-not-allowed bg-slate-800'
+          : 'border-emerald-600/50 text-emerald-400 hover:bg-emerald-900/30 bg-transparent'"
+        :disabled="importing"
+        @click="onImportClick"
+      >
+        <svg v-if="!importing" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <svg v-else class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        </svg>
+        {{ importing ? '执行两阶段处理中...' : '导入 AIS CSV（两阶段）' }}
+      </button>
+      <p class="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
+        阶段1：仅复制 CSV 到 ais_raw；阶段2：清洗/分段/插值后生成 pkl
+      </p>
+      <div class="mt-3 space-y-2">
+        <input
+          v-model="importPath"
+          type="text"
+          placeholder="例如：D:\\AIS\\ais_2025.csv"
+          class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+          style="background: #1a2332; color: #e2e8f0"
+        />
+        <button
+          class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 transition"
+          :class="importing
+            ? 'bg-slate-700 border border-slate-600 text-slate-400 cursor-not-allowed'
+            : 'bg-ocean-500/10 border border-ocean-500/40 text-ocean-400 hover:bg-ocean-500/20'"
+          :disabled="importing"
+          @click="onImportByPath"
+        >
+          按路径导入大文件
+        </button>
+      </div>
+      <div v-if="importTaskId" class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/50 p-2.5">
+        <div class="flex items-center justify-between text-[10px] text-slate-400">
+          <span>任务总状态</span>
+          <span>{{ importProgress }}%</span>
+        </div>
+        <div class="mt-1 text-xs text-slate-300">{{ importStage || '等待执行' }}</div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+          <div
+            class="h-full rounded bg-ocean-500 transition-all duration-500"
+            :style="{ width: `${importProgress}%` }"
+          />
+        </div>
+        <div class="mt-2 text-[10px] text-slate-500 break-all">任务ID：{{ importTaskId }}</div>
+
+        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>1) 复制 CSV 到 ais_raw（不清洗）</span>
+            <span>{{ mobilityProgress }}%</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-300">{{ mobilityStage }}</div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>已读行数</span>
+            <span>
+              {{ formatNumber(mobilityCurrentRows) }}
+              <template v-if="mobilityTotalRows > 0"> / {{ formatNumber(mobilityTotalRows) }}</template>
+            </span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>预计剩余</span>
+            <span>{{ mobilityStatus === 'completed' ? '导入完成' : formatEta(mobilityEtaSeconds) }}</span>
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+            <div class="h-full rounded bg-emerald-500 transition-all duration-500" :style="{ width: `${mobilityProgress}%` }" />
+          </div>
+        </div>
+
+        <div class="mt-3 rounded border border-slate-800 bg-slate-950/40 px-2 py-2">
+          <div class="flex items-center justify-between text-[10px] text-slate-400">
+            <span>2) 清洗分段并生成 pkl</span>
+            <span>{{ pklProgress }}%</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-300">{{ pklStage }}</div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>预计剩余</span>
+            <span>{{ pklStatus === 'completed' ? '处理完成' : formatEta(pklEtaSeconds) }}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+            <span>样本数量</span>
+            <span>{{ formatNumber(pklSampleCount) }}</span>
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
+            <div class="h-full rounded bg-violet-500 transition-all duration-500" :style="{ width: `${pklProgress}%` }" />
+          </div>
+          <div v-if="pklOutputPath" class="mt-2 text-[10px] text-slate-500 break-all">{{ pklOutputPath }}</div>
+        </div>
+      </div>
+      <div class="mt-3 rounded-md border border-slate-700/70 bg-slate-900/40 p-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-slate-400">最近导入记录</span>
+          <button
+            class="text-[10px] text-ocean-400 hover:text-ocean-300 transition"
+            @click="loadImportHistory"
+          >
+            刷新
+          </button>
+        </div>
+        <div v-if="importHistory.length === 0" class="mt-2 text-[10px] text-slate-500">
+          暂无导入记录
+        </div>
+        <div v-else class="mt-2 space-y-2">
+          <div
+            v-for="task in importHistory"
+            :key="task.task_id"
+            class="rounded border border-slate-800 bg-slate-950/40 px-2 py-2"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0 text-[11px] text-slate-300 truncate">
+                {{ task.filename || task.source }}
+              </div>
+              <div class="text-[10px]" :class="taskStatusClass(task.status)">
+                {{ taskStatusLabel(task.status) }}
+              </div>
+            </div>
+            <div class="mt-1 text-[10px] text-slate-500 truncate">{{ task.stage }}</div>
+            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+              <span>{{ formatTaskTime(task.updated_at) }}</span>
+              <span>{{ task.progress }}%</span>
+            </div>
+            <div class="mt-1 flex items-center justify-between text-[10px] text-slate-600">
+              <span>{{ formatNumber(task.current_rows) }}<template v-if="task.total_rows > 0"> / {{ formatNumber(task.total_rows) }}</template></span>
+              <span v-if="task.status === 'completed'">{{ formatNumber(task.rows_inserted) }} 行</span>
+              <span v-else-if="task.status === 'failed'">失败</span>
+              <span v-else>{{ formatEta(task.eta_seconds) }}</span>
+            </div>
           </div>
         </div>
       </div>

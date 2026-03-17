@@ -150,15 +150,22 @@ async def get_vessel_track(
     end_time: datetime,
 ) -> TrackResponse | None:
     """查询轨迹（通过 MobilityDB vessels 表）"""
+    time_span = f"[{start_time.isoformat(sep=' ')}, {end_time.isoformat(sep=' ')})"
+
     query = text("""
         SELECT mmsi, vessel_name,
-               ST_AsGeoJSON(trajectory(atTime(trip, tstzspan(:t_start, :t_end))))::json AS geojson
+               ST_AsGeoJSON(
+                   trajectory(
+                       atTime(
+                           trip,
+                           CAST(:time_span AS tstzspan)
+                       )
+                   )
+               )::json AS geojson
         FROM vessels
         WHERE mmsi = :mmsi
     """)
-    result = await db.execute(
-        query, {"mmsi": mmsi, "t_start": start_time, "t_end": end_time}
-    )
+    result = await db.execute(query, {"mmsi": mmsi, "time_span": time_span})
     row = result.fetchone()
     if not row or row.geojson is None:
         return None
