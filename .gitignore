@@ -5,3 +5,6 @@
 **/*.pyc
 **/.env
 .vscode/**
+**/*.tsbuildinfo
+ais-analyse-backend/data/samples/*.pkl
+ais-analyse-backend/app/services/predictor/data/samples/*.pkl

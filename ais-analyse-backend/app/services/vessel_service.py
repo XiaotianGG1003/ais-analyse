@@ -180,3 +180,33 @@ async def get_vessel_track(
         track=geojson,
         point_count=len(coords),
     )
+
+
+async def get_trajectory_center(db: AsyncSession) -> dict | None:
+    """获取轨迹库中心点（按经纬度包围盒中心）"""
+    query = text("""
+        SELECT
+            MIN(longitude) AS min_lon,
+            MAX(longitude) AS max_lon,
+            MIN(latitude) AS min_lat,
+            MAX(latitude) AS max_lat
+        FROM ais_raw
+        WHERE longitude IS NOT NULL AND latitude IS NOT NULL
+    """)
+    result = await db.execute(query)
+    row = result.fetchone()
+    if not row:
+        return None
+    if row.min_lon is None or row.max_lon is None or row.min_lat is None or row.max_lat is None:
+        return None
+
+    center_lon = float((row.min_lon + row.max_lon) / 2.0)
+    center_lat = float((row.min_lat + row.max_lat) / 2.0)
+    return {
+        "longitude": center_lon,
+        "latitude": center_lat,
+        "min_longitude": float(row.min_lon),
+        "max_longitude": float(row.max_lon),
+        "min_latitude": float(row.min_lat),
+        "max_latitude": float(row.max_lat),
+    }

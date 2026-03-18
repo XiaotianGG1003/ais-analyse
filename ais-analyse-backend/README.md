@@ -537,11 +537,13 @@ GET /api/vessels/{mmsi}/prediction?duration_minutes={minutes}
 | mmsi | int (路径) | ✅ | — | 合法 MMSI |
 | duration_minutes | int | ❌ | 60 | 预测时长（5~360 分钟） |
 
+基于训练好的 `Mutual_Attention_opt` 模型，预测船舶未来航行轨迹。
+
 **算法说明：**
-1. 从数据库获取该船最近 10 个轨迹点
-2. 使用 NumPy `polyfit` 对经纬度分别进行线性回归
-3. 按 `PREDICTION_STEP_MINUTES`（默认 5 分钟）步长外推
-4. 通过 R² 计算置信度
+1. 从数据库获取该船最近最多 120 个轨迹点
+2. 将轨迹点重采样到模型输入长度（120 点）
+3. 通过 ST 检索 + `Mutual_Attention_opt` 进行轨迹推理
+4. 按接口参数 `duration_minutes / step_minutes` 对模型输出采样返回
 
 **响应示例：**
 ```json
@@ -558,7 +560,7 @@ GET /api/vessels/{mmsi}/prediction?duration_minutes={minutes}
       "2026-03-12T12:05:00Z"
     ],
     "confidence": 0.85,
-    "method": "linear_extrapolation"
+    "method": "mutual_attention_opt"
   }
 }
 ```

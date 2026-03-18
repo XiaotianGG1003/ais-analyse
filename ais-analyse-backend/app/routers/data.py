@@ -28,7 +28,7 @@ from app.database import async_session, get_db
 def _get_import_func():
     """延迟导入，避免 data_process 顶层依赖（scipy 等）未安装时影响 API 启动。"""
     try:
-        from app.data_process import import_csv_to_mobilitydb  # noqa: PLC0415
+        from app.services.data_process import import_csv_to_mobilitydb  # noqa: PLC0415
         return import_csv_to_mobilitydb
     except ImportError as exc:
         raise RuntimeError(
@@ -536,7 +536,7 @@ def _run_ais_raw_import_sync(csv_path: str, conn_params: dict, progress_callback
 
 def _get_generate_pkl_func():
     try:
-        from app.data_process import generate_samples_pkl_from_ais_raw  # noqa: PLC0415
+        from app.services.data_process import generate_samples_pkl_from_ais_raw  # noqa: PLC0415
         return generate_samples_pkl_from_ais_raw
     except ImportError as exc:
         raise RuntimeError(

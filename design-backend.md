@@ -351,7 +351,7 @@ GET /api/vessels/{mmsi}/prediction?duration_minutes={minutes}
 ```
 
 **算法说明：**
-基于最近 N 个轨迹点，使用线性外推或卡尔曼滤波预测未来位置。
+基于最近 N 个轨迹点，使用训练好的 `Mutual_Attention_opt` 模型预测未来位置。
 
 **响应示例：**
 ```json
@@ -365,7 +365,7 @@ GET /api/vessels/{mmsi}/prediction?duration_minutes={minutes}
     },
     "predicted_timestamps": ["2026-03-12T12:00:00Z", "2026-03-12T12:30:00Z"],
     "confidence": 0.85,
-    "method": "linear_extrapolation"
+    "method": "mutual_attention_opt"
   }
 }
 ```
@@ -441,33 +441,14 @@ class PredictionResult(BaseModel):
 ### 4.2 轨迹预测算法
 
 ```python
-import numpy as np
-
-def linear_extrapolation(track_points, duration_minutes=60, step_minutes=5):
-    """
-    基于最近轨迹点的线性外推预测
-    """
-    recent = track_points[-10:]  # 取最近10个点
-    
-    # 计算平均速度和航向
-    lons = [p['longitude'] for p in recent]
-    lats = [p['latitude'] for p in recent]
-    
-    # 线性回归拟合趋势
-    t = np.arange(len(recent))
-    lon_slope = np.polyfit(t, lons, 1)[0]
-    lat_slope = np.polyfit(t, lats, 1)[0]
-    
-    # 外推
-    steps = duration_minutes // step_minutes
-    predictions = []
-    for i in range(1, steps + 1):
-        predictions.append({
-            'longitude': lons[-1] + lon_slope * i,
-            'latitude': lats[-1] + lat_slope * i,
-        })
-    
-    return predictions
+def mutual_attention_predict(track_points, duration_minutes=60, step_minutes=5):
+  """
+  基于 Mutual_Attention_opt 的轨迹预测（伪代码）
+  """
+  recent = track_points[-120:]            # 最近最多 120 个点
+  obs = resample_to_120_points(recent)    # 与模型输入长度对齐
+  pred_30s = run_mutual_attention_opt(obs)
+  return sample_by_minutes(pred_30s, duration_minutes, step_minutes)
 ```
 
 ## 5. 安全设计

@@ -3,12 +3,59 @@ import { ref, computed } from 'vue'
 import type { Ship, TrackStatistics, AreaDetectionResult, DistanceResultData, PredictionResultData } from '@/types'
 import { MOCK_SHIPS } from '@/data/mockData'
 import * as api from '@/api'
+import type { ManualTrackPoint, SimilarTrackItemData } from '@/api'
 
 // 固定调色板，给从后端加载的船舶分配颜色
 const PALETTE = [
   '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899',
   '#06B6D4', '#F97316', '#14B8A6', '#6366F1', '#EF4444',
 ]
+
+function resampleManualPoints(points: ManualTrackPoint[], targetLen: number): ManualTrackPoint[] {
+  if (targetLen < 2) return [...points]
+  if (points.length < 2) return [...points]
+
+  const deltas: number[] = []
+  for (let i = 1; i < points.length; i += 1) {
+    const dx = points[i].lon - points[i - 1].lon
+    const dy = points[i].lat - points[i - 1].lat
+    deltas.push(Math.hypot(dx, dy))
+  }
+
+  const dist: number[] = [0]
+  for (let i = 0; i < deltas.length; i += 1) {
+    dist.push(dist[i] + deltas[i])
+  }
+
+  const total = dist[dist.length - 1]
+  if (total < 1e-10) {
+    return Array.from({ length: targetLen }, () => ({ ...points[0] }))
+  }
+
+  const targetDist: number[] = Array.from(
+    { length: targetLen },
+    (_, i) => (i * total) / (targetLen - 1),
+  )
+
+  const out: ManualTrackPoint[] = []
+  let j = 0
+  for (let i = 0; i < targetDist.length; i += 1) {
+    const td = targetDist[i]
+    while (j < dist.length - 2 && dist[j + 1] < td) {
+      j += 1
+    }
+    const segLen = Math.max(1e-10, dist[j + 1] - dist[j])
+    const ratio = (td - dist[j]) / segLen
+    const p0 = points[j]
+    const p1 = points[j + 1]
+    out.push({
+      lon: p0.lon + ratio * (p1.lon - p0.lon),
+      lat: p0.lat + ratio * (p1.lat - p0.lat),
+    })
+  }
+
+  return out
+}
 
 export const useAppStore = defineStore('app', () => {
   // Ship list & selection
@@ -52,6 +99,13 @@ export const useAppStore = defineStore('app', () => {
 
   // Prediction
   const predictionResult = ref<PredictionResultData | null>(null)
+  const manualPredictMode = ref(false)
+  const similarTracksResult = ref<SimilarTrackItemData[]>([])
+  const similarQueryInfo = ref<{
+    points: number
+    startPoint: [number, number]
+    endPoint: [number, number]
+  } | null>(null)
 
   // Heatmap
   const heatmapVisible = ref(false)
@@ -125,6 +179,8 @@ export const useAppStore = defineStore('app', () => {
     areaDetectionResult.value = null
     distanceResult.value = null
     predictionResult.value = null
+    similarTracksResult.value = []
+    similarQueryInfo.value = null
     stopDetectionResult.value = null
     // Clear animation
     if (animationTimer.value) {
@@ -346,6 +402,62 @@ export const useAppStore = defineStore('app', () => {
       showToast(`置信度: ${(res.confidence * 100).toFixed(0)}%，预测 ${coords.length} 个航路点`, 'success')
     } catch (e: unknown) {
       showToast('轨迹预测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  async function fetchPredictionFromPoints(points: ManualTrackPoint[], durationMinutes = 60, stepSeconds = 60) {
+    if (points.length < 2) {
+      showToast('请至少绘制 2 个点', 'warning')
+      return
+    }
+
+    const fixedPoints = resampleManualPoints(points, 120)
+    showToast(`正在基于 ${fixedPoints.length} 个手绘点生成轨迹预测…`, 'info')
+    try {
+      const res = await api.predictTrajectoryFromPoints(fixedPoints, durationMinutes, stepSeconds)
+      const coords = res.predicted_track.coordinates || []
+      const endPt = coords.length > 0 ? coords[coords.length - 1] : [0, 0]
+      predictionResult.value = {
+        shipName: '手绘轨迹',
+        confidence: res.confidence,
+        points: coords.length,
+        endPoint: [endPt[0], endPt[1]] as [number, number],
+        predictedTrack: res.predicted_track,
+        predictedTimestamps: res.predicted_timestamps,
+        method: res.method,
+      }
+      activeRightTab.value = 'analysis'
+      showToast(`手绘轨迹预测完成：${coords.length} 个点`, 'success')
+    } catch (e: unknown) {
+      showToast('手绘轨迹预测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  async function fetchSimilarTracksFromPoints(points: ManualTrackPoint[], topK = 5) {
+    if (points.length < 2) {
+      showToast('请先在地图上至少点击 2 个点', 'warning')
+      return []
+    }
+
+    const fixedPoints = resampleManualPoints(points, 120)
+    const start = fixedPoints[0]
+    const end = fixedPoints[fixedPoints.length - 1]
+    similarQueryInfo.value = {
+      points: fixedPoints.length,
+      startPoint: [start.lon, start.lat],
+      endPoint: [end.lon, end.lat],
+    }
+
+    showToast(`正在检索最相似的 ${topK} 条轨迹…`, 'info')
+    try {
+      const res = await api.getSimilarTracksFromPoints(fixedPoints, topK)
+      similarTracksResult.value = res.tracks || []
+      activeRightTab.value = 'analysis'
+      showToast(`已找到 ${similarTracksResult.value.length} 条相似轨迹`, 'success')
+      return similarTracksResult.value
+    } catch (e: unknown) {
+      showToast('相似轨迹检索失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+      return []
     }
   }
 
@@ -661,6 +773,9 @@ export const useAppStore = defineStore('app', () => {
     distanceShipB,
     distanceResult,
     predictionResult,
+    manualPredictMode,
+    similarTracksResult,
+    similarQueryInfo,
     stopDetectionResult,
     animationData,
     cpaResult,
@@ -675,6 +790,8 @@ export const useAppStore = defineStore('app', () => {
     fetchAreaDetection,
     fetchDistance,
     fetchPrediction,
+    fetchPredictionFromPoints,
+    fetchSimilarTracksFromPoints,
     fetchStopDetection,
     fetchAnimationData,
     startAnimation,
