@@ -303,6 +303,32 @@ export function getVesselsDensity(bounds: {
   return request<HeatmapResponse>(url)
 }
 
+/* ---- CPA (Closest Point of Approach) ---- */
+
+export interface CPAResult {
+  mmsi_a: number
+  name_a: string
+  mmsi_b: number
+  name_b: string
+  cpa_time: string
+  min_distance_m: number
+  min_distance_nm: number
+  safety_status: 'danger' | 'warning' | 'safe'
+  safety_text: string
+  position_a: { lon: number; lat: number }
+  position_b: { lon: number; lat: number }
+  sog_a: number
+  sog_b: number
+  shortest_line: {
+    a: { lon: number; lat: number }
+    b: { lon: number; lat: number }
+  }
+}
+
+export function analyzeCPA(mmsiA: number, mmsiB: number) {
+  return request<CPAResult>(`/cpa/analyze?mmsi_a=${mmsiA}&mmsi_b=${mmsiB}`)
+}
+
 /* ---- Animation ---- */
 
 export interface AnimationFrame {
