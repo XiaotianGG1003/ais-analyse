@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
-import re
 import math
 
 from app.database import get_db
@@ -28,24 +27,24 @@ async def analyze_closest_point_approach(
     if mmsi_a == mmsi_b:
         raise HTTPException(status_code=400, detail="两艘船舶不能相同")
     
-    # Check if vessels table exists
+    # Check if ais_raw table exists
     check_table = text("""
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
-            WHERE table_name = 'vessels'
+            WHERE table_name = 'ais_raw'
         )
     """)
     result = await db.execute(check_table)
     if not result.scalar():
-        raise HTTPException(status_code=500, detail="vessels 表不存在，请先执行 build_vessel_trips()")
+        raise HTTPException(status_code=500, detail="ais_raw 表不存在")
     
-    # Check if vessels exist
+    # Check if vessels exist in ais_raw
     check_query = text("""
         SELECT 
-            (SELECT COUNT(*) FROM vessels WHERE mmsi = :mmsi_a) as count_a,
-            (SELECT COUNT(*) FROM vessels WHERE mmsi = :mmsi_b) as count_b,
-            (SELECT vessel_name FROM vessels WHERE mmsi = :mmsi_a LIMIT 1) as name_a,
-            (SELECT vessel_name FROM vessels WHERE mmsi = :mmsi_b LIMIT 1) as name_b
+            (SELECT COUNT(*) FROM ais_raw WHERE mmsi = :mmsi_a) as count_a,
+            (SELECT COUNT(*) FROM ais_raw WHERE mmsi = :mmsi_b) as count_b,
+            (SELECT vessel_name FROM ais_raw WHERE mmsi = :mmsi_a LIMIT 1) as name_a,
+            (SELECT vessel_name FROM ais_raw WHERE mmsi = :mmsi_b LIMIT 1) as name_b
     """)
     
     result = await db.execute(check_query, {"mmsi_a": mmsi_a, "mmsi_b": mmsi_b})
@@ -59,34 +58,63 @@ async def analyze_closest_point_approach(
     vessel_name_a = row.name_a or f"船舶 {mmsi_a}"
     vessel_name_b = row.name_b or f"船舶 {mmsi_b}"
     
-    # CPA Analysis using MobilityDB functions
+    # CPA Analysis using ais_raw table (more reliable than vessels/MobilityDB)
     query = text("""
-        WITH vessel_a AS (
-            SELECT mmsi, vessel_name, trip
-            FROM vessels
+        WITH vessel_a_points AS (
+            SELECT base_date_time, latitude, longitude, sog, vessel_name
+            FROM ais_raw
             WHERE mmsi = :mmsi_a
         ),
-        vessel_b AS (
-            SELECT mmsi, vessel_name, trip
-            FROM vessels
+        vessel_b_points AS (
+            SELECT base_date_time, latitude, longitude, sog, vessel_name
+            FROM ais_raw
             WHERE mmsi = :mmsi_b
         ),
-        cpa_calc AS (
+        -- 对齐时间戳（找时间差 < 60 秒的点对）
+        aligned_points AS (
             SELECT 
-                a.mmsi as mmsi_a,
+                a.base_date_time as time_a,
+                a.latitude as lat_a,
+                a.longitude as lon_a,
+                a.sog as sog_a,
                 a.vessel_name as name_a,
-                b.mmsi as mmsi_b,
+                b.base_date_time as time_b,
+                b.latitude as lat_b,
+                b.longitude as lon_b,
+                b.sog as sog_b,
                 b.vessel_name as name_b,
-                -- 最近接近时刻 (提取为 timestamp)
-                startTimestamp(nearestApproachInstant(a.trip, b.trip)) as cpa_time,
-                -- 最小距离（度）
-                minValue(a.trip <-> b.trip) as min_distance_deg,
-                -- 最近时的连线 WKT
-                ST_AsText(shortestLine(a.trip, b.trip)) as shortest_line_wkt
-            FROM vessel_a a
-            CROSS JOIN vessel_b b
+                ABS(EXTRACT(EPOCH FROM (a.base_date_time - b.base_date_time))) as time_diff_sec
+            FROM vessel_a_points a
+            JOIN vessel_b_points b 
+                ON ABS(EXTRACT(EPOCH FROM (a.base_date_time - b.base_date_time))) <= 60
+        ),
+        -- 计算距离（使用Haversine近似）
+        distances AS (
+            SELECT 
+                time_a, lat_a, lon_a, sog_a, name_a,
+                time_b, lat_b, lon_b, sog_b, name_b,
+                time_diff_sec,
+                -- 计算Haversine距离（米）
+                2 * 6371000 * ASIN(SQRT(
+                    POW(SIN(RADIANS(lat_b - lat_a) / 2), 2) +
+                    COS(RADIANS(lat_a)) * COS(RADIANS(lat_b)) * 
+                    POW(SIN(RADIANS(lon_b - lon_a) / 2), 2)
+                )) as dist_m
+            FROM aligned_points
+        ),
+        -- 找到最小距离
+        min_distance AS (
+            SELECT * FROM distances
+            ORDER BY dist_m ASC
+            LIMIT 1
         )
-        SELECT * FROM cpa_calc
+        SELECT 
+            time_a as cpa_time,
+            dist_m as min_distance_m,
+            lat_a, lon_a, sog_a, name_a,
+            lat_b, lon_b, sog_b, name_b,
+            time_diff_sec
+        FROM min_distance
     """)
     
     try:
@@ -96,66 +124,46 @@ async def analyze_closest_point_approach(
         if not row or row.cpa_time is None:
             raise HTTPException(status_code=404, detail="无法计算最近接近点，两船轨迹可能没有时空交集")
         
-        # Parse shortest line WKT to get positions
-        def parse_line_wkt(wkt):
-            """Parse LINESTRING(lon1 lat1,lon2 lat2) format"""
-            if not wkt:
-                return None
-            match = re.match(r'LINESTRING(?:\s+Z)?\s*\(([^)]+)\)', wkt)
-            if match:
-                coords = match.group(1).split(',')
-                if len(coords) >= 2:
-                    pt1 = coords[0].strip().split()
-                    pt2 = coords[1].strip().split()
-                    return {
-                        "a": {"lon": float(pt1[0]), "lat": float(pt1[1])},
-                        "b": {"lon": float(pt2[0]), "lat": float(pt2[1])}
-                    }
-            return None
+        # Get positions and distance from query result
+        lon_a, lat_a = row.lon_a, row.lat_a
+        lon_b, lat_b = row.lon_b, row.lat_b
+        sog_a, sog_b = row.sog_a or 0, row.sog_b or 0
+        min_distance_m = row.min_distance_m
         
-        shortest_line = parse_line_wkt(row.shortest_line_wkt)
+        if lon_a is None or lat_a is None or lon_b is None or lat_b is None:
+            raise HTTPException(status_code=500, detail="无法获取CPA时刻的船舶位置")
         
-        if not shortest_line:
-            raise HTTPException(status_code=500, detail="无法解析最短连线位置")
-        
-        # Get positions
-        lon_a, lat_a = shortest_line["a"]["lon"], shortest_line["a"]["lat"]
-        lon_b, lat_b = shortest_line["b"]["lon"], shortest_line["b"]["lat"]
-        
-        # Calculate distance from shortest line endpoints using Haversine formula
-        def haversine_distance(lat1, lon1, lat2, lon2):
-            """Calculate distance between two points in meters"""
-            R = 6371000  # Earth radius in meters
-            phi1 = math.radians(lat1)
-            phi2 = math.radians(lat2)
-            delta_phi = math.radians(lat2 - lat1)
-            delta_lambda = math.radians(lon2 - lon1)
-            a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-            return R * c
-        
-        # Calculate actual distance from shortest line endpoints
-        min_distance_m = haversine_distance(lat_a, lon_a, lat_b, lon_b)
+        # Convert to nautical miles
         min_distance_nm = min_distance_m / 1852.0
         
         # Determine safety status
         if min_distance_nm < 0.5:
             safety_status = "danger"
-            safety_text = "危险"
+            safety_text = "Danger"
         elif min_distance_nm < 1.0:
             safety_status = "warning"
-            safety_text = "警告"
+            safety_text = "Warning"
         else:
             safety_status = "safe"
-            safety_text = "安全"
+            safety_text = "Safe"
+        
+        # Build shortest line from actual positions at CPA time
+        shortest_line = {
+            "a": {"lon": lon_a, "lat": lat_a},
+            "b": {"lon": lon_b, "lat": lat_b}
+        }
+        
+        # Use vessel names from query result if available
+        name_a = row.name_a or vessel_name_a
+        name_b = row.name_b or vessel_name_b
         
         return {
             "code": 200,
             "data": {
                 "mmsi_a": mmsi_a,
-                "name_a": vessel_name_a,
+                "name_a": name_a,
                 "mmsi_b": mmsi_b,
-                "name_b": vessel_name_b,
+                "name_b": name_b,
                 "cpa_time": row.cpa_time.isoformat() if hasattr(row.cpa_time, 'isoformat') else str(row.cpa_time),
                 "min_distance_m": round(min_distance_m, 2),
                 "min_distance_nm": round(min_distance_nm, 2),
@@ -163,8 +171,8 @@ async def analyze_closest_point_approach(
                 "safety_text": safety_text,
                 "position_a": {"lon": lon_a, "lat": lat_a},
                 "position_b": {"lon": lon_b, "lat": lat_b},
-                "sog_a": 0,
-                "sog_b": 0,
+                "sog_a": sog_a,
+                "sog_b": sog_b,
                 "shortest_line": shortest_line,
             }
         }
