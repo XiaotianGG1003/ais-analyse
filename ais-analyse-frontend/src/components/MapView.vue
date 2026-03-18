@@ -23,6 +23,7 @@ let cpaLayer: L.LayerGroup | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
+let drawAreaPatched = false
 
 const mapZoom = ref(8)
 const mapCenterLat = ref(31.0)
@@ -52,9 +53,25 @@ function createShipIcon(color: string, heading: number) {
   })
 }
 
+function patchLeafletDrawAreaTooltip() {
+  if (drawAreaPatched) return
+  const geometryUtil = (L as unknown as { GeometryUtil?: { readableArea?: (...args: unknown[]) => string } }).GeometryUtil
+  if (!geometryUtil?.readableArea) return
+  const original = geometryUtil.readableArea
+  geometryUtil.readableArea = (...args: unknown[]) => {
+    try {
+      return original(...args)
+    } catch {
+      return ''
+    }
+  }
+  drawAreaPatched = true
+}
+
 // ---- Init Map ----
 function initMap() {
   if (!mapContainer.value) return
+  patchLeafletDrawAreaTooltip()
   map = L.map(mapContainer.value, {
     center: [31.0, 122.0],
     zoom: 8,
@@ -207,6 +224,8 @@ function toggleAreaDraw() {
   store.showToast('请在地图上点击绘制矩形区域', 'info')
 
   drawControl = new (L.Draw as any).Rectangle(map, {
+    showArea: false,
+    metric: false,
     shapeOptions: {
       color: '#0EA5E9',
       fillColor: '#0EA5E9',
