@@ -88,7 +88,7 @@ async def detect_area(
     # 判断是否相交
     intersect_query = text("""
         SELECT eIntersects(
-            atTime(trip, tstzspan(:t_start, :t_end)),
+            atTime(trip, span(CAST(:t_start AS timestamptz), CAST(:t_end AS timestamptz), true, true)),
             ST_GeogFromText(ST_AsText(ST_GeomFromGeoJSON(:area_json)))
         ) AS entered
         FROM vessels WHERE mmsi = :mmsi
@@ -108,22 +108,39 @@ async def detect_area(
     if not entered:
         return AreaDetectionResponse(entered=False)
 
-    # 获取区域内轨迹段
+    # 获取区域内轨迹段（避免使用 atGeometry(tgeogpoint, geometry) 的不兼容签名）
     inside_query = text("""
+        WITH inside_pts AS (
+            SELECT
+                longitude,
+                latitude,
+                base_date_time
+            FROM ais_raw
+            WHERE mmsi = :mmsi
+              AND base_date_time >= CAST(:t_start AS timestamptz)
+              AND base_date_time <= CAST(:t_end AS timestamptz)
+              AND longitude IS NOT NULL
+              AND latitude IS NOT NULL
+              AND ST_Contains(
+                  ST_GeomFromGeoJSON(:area_json),
+                  ST_SetSRID(ST_Point(longitude, latitude), 4326)
+              )
+            ORDER BY base_date_time
+        )
         SELECT
-            ST_AsGeoJSON(trajectory(atGeometry(
-                atTime(trip, tstzspan(:t_start, :t_end)),
-                ST_GeomFromGeoJSON(:area_json)
-            )))::json AS inside_track,
-            startTimestamp(atGeometry(
-                atTime(trip, tstzspan(:t_start, :t_end)),
-                ST_GeomFromGeoJSON(:area_json)
-            )) AS enter_ts,
-            endTimestamp(atGeometry(
-                atTime(trip, tstzspan(:t_start, :t_end)),
-                ST_GeomFromGeoJSON(:area_json)
-            )) AS exit_ts
-        FROM vessels WHERE mmsi = :mmsi
+            CASE
+                WHEN COUNT(*) >= 2 THEN
+                    ST_AsGeoJSON(
+                        ST_MakeLine(
+                            ST_SetSRID(ST_Point(longitude, latitude), 4326)
+                            ORDER BY base_date_time
+                        )
+                    )::json
+                ELSE NULL
+            END AS inside_track,
+            MIN(base_date_time) AS enter_ts,
+            MAX(base_date_time) AS exit_ts
+        FROM inside_pts
     """)
     inside_result = await db.execute(
         inside_query,
@@ -162,7 +179,7 @@ async def calc_distance(
     nad_query = text("""
         SELECT
             nearestApproachDistance(v1.trip, v2.trip) AS min_dist_m,
-            nearestApproachInstant(v1.trip, v2.trip) AS closest_time
+            startTimestamp(nearestApproachInstant(v1.trip, v2.trip)) AS closest_time
         FROM vessels v1, vessels v2
         WHERE v1.mmsi = :mmsi1 AND v2.mmsi = :mmsi2
     """)
