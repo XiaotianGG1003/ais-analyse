@@ -11,6 +11,15 @@ const sogDistChartEl = ref<HTMLDivElement>()
 let speedChart: echarts.ECharts | null = null
 let sogDistChart: echarts.ECharts | null = null
 
+function formatUtcHm(time: string) {
+  const d = new Date(time)
+  if (Number.isNaN(d.getTime())) {
+    const m = time.match(/(\d{2}):(\d{2})/)
+    return m ? `${m[1]}:${m[2]}` : time
+  }
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+
 function formatPositionTime(time?: string | null) {
   if (!time) return '-'
   const d = new Date(time)
@@ -34,6 +43,17 @@ watch(
   },
 )
 
+watch(
+  () => store.trackStatistics,
+  async (stats) => {
+    if (store.activeRightTab === 'stats' && stats && store.selectedShip) {
+      await nextTick()
+      renderSpeedChart()
+      renderSOGDistChart()
+    }
+  },
+)
+
 function renderSpeedChart() {
   const ship = store.selectedShip
   const stats = store.trackStatistics
@@ -47,8 +67,7 @@ function renderSpeedChart() {
 
   if (stats.speedSeries && stats.speedSeries.length > 0) {
     stats.speedSeries.forEach((pt) => {
-      const d = new Date(pt.time)
-      times.push(d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'))
+      times.push(formatUtcHm(pt.time))
       speeds.push(pt.speed)
     })
   } else {
@@ -112,13 +131,22 @@ function renderSpeedChart() {
 
 function renderSOGDistChart() {
   const ship = store.selectedShip
-  if (!ship || !sogDistChartEl.value) return
+  const stats = store.trackStatistics
+  if (!ship || !sogDistChartEl.value || !stats) return
 
   if (sogDistChart) sogDistChart.dispose()
   sogDistChart = echarts.init(sogDistChartEl.value)
 
   const ranges = ['0-5', '5-10', '10-15', '15-20', '20+']
-  const counts = ranges.map(() => Math.floor(Math.random() * 30) + 5)
+  const counts = [0, 0, 0, 0, 0]
+  ;(stats.speedSeries || []).forEach((pt) => {
+    const s = pt.speed
+    if (s < 5) counts[0] += 1
+    else if (s < 10) counts[1] += 1
+    else if (s < 15) counts[2] += 1
+    else if (s < 20) counts[3] += 1
+    else counts[4] += 1
+  })
 
   sogDistChart.setOption({
     grid: { top: 10, right: 10, bottom: 24, left: 36 },
