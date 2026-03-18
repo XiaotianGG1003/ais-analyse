@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES } from '@/types'
 import { getImportTask, importAisCsv, importAisCsvByPath, listImportTasks } from '@/api'
@@ -37,7 +37,42 @@ const pklStatus = ref('queued')
 const pklSampleCount = ref(0)
 const pklOutputPath = ref('')
 const importHistory = ref<ImportTaskStatus[]>([])
+const shipPage = ref(1)
+const shipPageSize = ref(10)
 let importPollTimer: number | null = null
+
+const totalShipPages = computed(() => {
+  const total = store.vesselTotal
+  return Math.max(1, Math.ceil(total / shipPageSize.value))
+})
+
+watch(
+  () => [store.vesselPage, store.vesselPageSize],
+  () => {
+    shipPage.value = store.vesselPage
+    shipPageSize.value = store.vesselPageSize
+  },
+  { immediate: true },
+)
+
+function prevShipPage() {
+  if (shipPage.value > 1) {
+    shipPage.value -= 1
+    void store.fetchShips(shipPage.value, shipPageSize.value)
+  }
+}
+
+function nextShipPage() {
+  if (shipPage.value < totalShipPages.value) {
+    shipPage.value += 1
+    void store.fetchShips(shipPage.value, shipPageSize.value)
+  }
+}
+
+function onShipPageSizeChange() {
+  shipPage.value = 1
+  void store.fetchShips(shipPage.value, shipPageSize.value)
+}
 
 // Init default time range
 store.timeStart = '2025-01-01T00:00'
@@ -829,14 +864,15 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Ship List -->
-    <div class="flex-1 overflow-y-auto px-2 py-2">
+    <div class="flex-1 min-h-0 px-2 py-2 flex flex-col">
       <div class="flex items-center justify-between px-2 mb-2">
         <span class="text-[11px] text-slate-500 font-medium">船舶列表</span>
-        <span class="text-[10px] text-slate-600 font-mono">{{ store.filteredShips.length }} 艘</span>
+        <span class="text-[10px] text-slate-600 font-mono">总计 {{ store.vesselTotal }} 艘</span>
       </div>
-      <div class="space-y-1">
+
+      <div class="flex-1 overflow-y-auto space-y-1 pr-1">
         <div
-          v-for="ship in store.filteredShips"
+          v-for="ship in store.ships"
           :key="ship.mmsi"
           class="rounded-lg px-3 py-2.5 cursor-pointer flex items-center gap-3 transition-all duration-200 hover:bg-navy-600"
           :class="
@@ -868,6 +904,48 @@ onBeforeUnmount(() => {
             <div class="text-[10px] text-slate-500">
               {{ VESSEL_TYPES[ship.vessel_type] || '未知' }}
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-2 pt-2 border-t border-slate-700/30">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-[10px] text-slate-500 font-mono">
+            第 {{ shipPage }}/{{ totalShipPages }} 页
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              class="w-6 h-6 text-[11px] rounded border border-slate-700 text-slate-300 transition flex items-center justify-center"
+              :class="shipPage <= 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-navy-600'"
+              :disabled="shipPage <= 1"
+              @click="prevShipPage"
+              title="上一页"
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <button
+              class="w-6 h-6 text-[11px] rounded border border-slate-700 text-slate-300 transition flex items-center justify-center"
+              :class="shipPage >= totalShipPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-navy-600'"
+              :disabled="shipPage >= totalShipPages"
+              @click="nextShipPage"
+              title="下一页"
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+            <select
+              v-model.number="shipPageSize"
+              class="text-[10px] py-1 px-1.5 rounded border border-slate-700 outline-none"
+              style="background: #1a2332; color: #e2e8f0"
+              @change="onShipPageSizeChange"
+            >
+              <option :value="10">10/页</option>
+              <option :value="20">20/页</option>
+              <option :value="50">50/页</option>
+            </select>
           </div>
         </div>
       </div>

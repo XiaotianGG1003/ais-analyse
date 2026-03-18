@@ -94,9 +94,13 @@ function clearShipMarkers() {
   for (const k of Object.keys(shipMarkers)) delete shipMarkers[Number(k)]
 }
 
-function renderShips() {
+function renderShips(selectedMmsi?: number) {
   clearShipMarkers()
-  store.ships.forEach((ship) => {
+  if (!selectedMmsi) return
+
+  const ship = store.ships.find((s) => s.mmsi === selectedMmsi)
+  if (!ship) return
+
     const marker = L.marker([ship.position.lat, ship.position.lon], {
       icon: createShipIcon(ship.color, ship.position.heading),
       zIndexOffset: 1000,
@@ -120,7 +124,6 @@ function renderShips() {
 
     marker.on('click', () => store.selectShip(ship.mmsi))
     shipMarkers[ship.mmsi] = marker
-  })
 }
 
 // Expose selectShip for popup button
@@ -497,6 +500,33 @@ watch(
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
+        // Only render if position is loaded (not the default 0,0)
+        const hasValidPosition = ship.position.lat !== 0 || ship.position.lon !== 0
+        if (hasValidPosition) {
+          renderShips(ship.mmsi)
+          map.setView([ship.position.lat, ship.position.lon], Math.max(map.getZoom(), 9))
+          drawTrack(ship.mmsi)
+        }
+      }
+    } else {
+      clearShipMarkers()
+    }
+  },
+)
+
+// Watch selected ship's position updates (from async detail fetch)
+watch(
+  () => {
+    const ship = store.ships.find((s) => s.mmsi === store.selectedMMSI)
+    return ship ? `${ship.position.lat},${ship.position.lon}` : null
+  },
+  (position) => {
+    if (!position || !map) return
+    const ship = store.selectedShip
+    if (ship) {
+      const hasValidPosition = ship.position.lat !== 0 || ship.position.lon !== 0
+      if (hasValidPosition && ship.mmsi === store.selectedMMSI) {
+        renderShips(ship.mmsi)
         map.setView([ship.position.lat, ship.position.lon], Math.max(map.getZoom(), 9))
         drawTrack(ship.mmsi)
       }
@@ -549,7 +579,6 @@ onMounted(async () => {
   await nextTick()
   initMap()
   await store.fetchShips()
-  renderShips()
 })
 
 onUnmounted(() => {

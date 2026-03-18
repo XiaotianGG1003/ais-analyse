@@ -13,6 +13,9 @@ const PALETTE = [
 export const useAppStore = defineStore('app', () => {
   // Ship list & selection
   const ships = ref<Ship[]>([])
+  const vesselTotal = ref(0)
+  const vesselPage = ref(1)
+  const vesselPageSize = ref(10)
   const loading = ref(false)
   const selectedMMSI = ref<number | null>(null)
   const searchKeyword = ref('')
@@ -103,7 +106,7 @@ export const useAppStore = defineStore('app', () => {
     }, 3000)
   }
 
-  function selectShip(mmsi: number | null) {
+  async function selectShip(mmsi: number | null) {
     selectedMMSI.value = mmsi
     trackVisible.value = false
     trackGeoJSON.value = null
@@ -122,7 +125,8 @@ export const useAppStore = defineStore('app', () => {
       rightPanelOpen.value = true
       activeRightTab.value = 'detail'
       // Fetch full detail from API and update the ship in the list
-      api.getVesselDetail(mmsi).then((detail) => {
+      try {
+        const detail = await api.getVesselDetail(mmsi)
         const idx = ships.value.findIndex((s) => s.mmsi === mmsi)
         if (idx >= 0 && detail.last_position) {
           const ship = ships.value[idx]
@@ -141,15 +145,20 @@ export const useAppStore = defineStore('app', () => {
             }
           }
         }
-      }).catch(() => { /* detail fetch is best-effort */ })
+      } catch {
+        // detail fetch is best-effort, continue without it
+      }
     }
   }
 
   /** 从后端加载船舶列表，失败则回退到 mock 数据 */
-  async function fetchShips() {
+  async function fetchShips(page = vesselPage.value, pageSize = vesselPageSize.value) {
     loading.value = true
     try {
-      const res = await api.listVessels(1, 100)
+      vesselPage.value = page
+      vesselPageSize.value = pageSize
+      const res = await api.listVessels(page, pageSize)
+      vesselTotal.value = res.total
       ships.value = res.items.map((item, i) => ({
         mmsi: item.mmsi,
         vessel_name: item.vessel_name || `Ship ${item.mmsi}`,
@@ -165,8 +174,8 @@ export const useAppStore = defineStore('app', () => {
         track: [],
         color: PALETTE[i % PALETTE.length],
       }))
-      if (ships.value.length === 0) throw new Error('empty')
-      // 逐个获取最新位置（前20艘）
+      if (ships.value.length === 0 && res.total === 0) throw new Error('empty')
+      // 逐个获取最新位置（当前页，最多20艘）
       const batch = ships.value.slice(0, 20)
       const details = await Promise.allSettled(
         batch.map((s) => api.getVesselDetail(s.mmsi)),
@@ -189,9 +198,12 @@ export const useAppStore = defineStore('app', () => {
           }
         }
       })
-      showToast(`已从数据库加载 ${ships.value.length} 艘船舶`, 'success')
+      showToast(`已加载第 ${vesselPage.value} 页，当前 ${ships.value.length} 艘 / 总计 ${vesselTotal.value} 艘`, 'success')
     } catch {
       ships.value = MOCK_SHIPS
+      vesselTotal.value = MOCK_SHIPS.length
+      vesselPage.value = 1
+      vesselPageSize.value = 10
       showToast('后端连接失败，使用演示数据', 'warning')
     } finally {
       loading.value = false
@@ -204,8 +216,9 @@ export const useAppStore = defineStore('app', () => {
     if (!ship || !timeStart.value || !timeEnd.value) return
     showToast(`正在查询 ${ship.vessel_name} 的轨迹…`, 'info')
     try {
-      const startISO = new Date(timeStart.value).toISOString()
-      const endISO = new Date(timeEnd.value).toISOString()
+      // 直接使用输入的时间，不做时区转换
+      const startISO = timeStart.value + ':00Z'
+      const endISO = timeEnd.value + ':00Z'
 
       const [trackRes, statsRes] = await Promise.allSettled([
         api.getVesselTrack(ship.mmsi, startISO, endISO),
@@ -214,9 +227,11 @@ export const useAppStore = defineStore('app', () => {
 
       if (trackRes.status === 'fulfilled' && trackRes.value.track) {
         const tr = trackRes.value
-        trackGeoJSON.value = tr.track as GeoJSON.LineString
+        const track = tr.track
+        if (!track) return
+        trackGeoJSON.value = track as GeoJSON.LineString
         // 同步到 ship.track 供地图渲染
-        const coords = tr.track.coordinates || []
+        const coords = track.coordinates || []
         ship.track = coords.map((c: number[]) => [c[0], c[1]] as [number, number])
         trackVisible.value = true
         showToast(`已加载 ${tr.point_count} 个轨迹点`, 'success')
@@ -248,8 +263,8 @@ export const useAppStore = defineStore('app', () => {
     try {
       const res = await api.detectArea({
         mmsi: ship.mmsi,
-        start_time: new Date(timeStart.value).toISOString(),
-        end_time: new Date(timeEnd.value).toISOString(),
+        start_time: timeStart.value + ':00Z',
+        end_time: timeEnd.value + ':00Z',
         area: areaPoly as unknown as Record<string, unknown>,
       })
       let stayStr: string | null = null
@@ -329,8 +344,8 @@ export const useAppStore = defineStore('app', () => {
     try {
       const res = await api.getAnimationFrames(
         ship.mmsi,
-        new Date(timeStart.value).toISOString(),
-        new Date(timeEnd.value).toISOString(),
+        timeStart.value + ':00Z',
+        timeEnd.value + ':00Z',
         stepSeconds,
       )
       animationData.value = {
@@ -503,6 +518,9 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     ships,
+    vesselTotal,
+    vesselPage,
+    vesselPageSize,
     loading,
     selectedMMSI,
     searchKeyword,
