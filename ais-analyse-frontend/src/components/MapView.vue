@@ -19,6 +19,7 @@ let stopPointLayers: L.LayerGroup | null = null
 let animationLayer: L.LayerGroup | null = null
 let animationShipMarker: L.Marker | null = null
 let animationTrailLayer: L.Polyline | null = null
+let cpaLayer: L.LayerGroup | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
@@ -488,12 +489,122 @@ function clearAnimation() {
   animationTrailLayer = null
 }
 
+// ---- CPA Visualization ----
+function renderCPA() {
+  if (!store.cpaResult) return
+  clearCPA()
+  
+  const cpa = store.cpaResult
+  cpaLayer = L.layerGroup()
+  
+  // Ship A position at CPA time
+  const shipA = store.ships.find((s) => s.mmsi === cpa.mmsiA)
+  const shipB = store.ships.find((s) => s.mmsi === cpa.mmsiB)
+  const colorA = shipA?.color || '#0EA5E9'
+  const colorB = shipB?.color || '#10B981'
+  
+  // Marker for Ship A at CPA position
+  const markerA = L.circleMarker([cpa.positionA.lat, cpa.positionA.lon], {
+    radius: 10,
+    fillColor: colorA,
+    color: '#fff',
+    weight: 2,
+    opacity: 1,
+    fillOpacity: 0.9,
+  }).addTo(cpaLayer)
+  
+  markerA.bindTooltip(
+    `<div style="font-size:11px;">
+      <div style="font-weight:600;">${cpa.nameA}</div>
+      <div>CPA时刻位置</div>
+      <div>航速: ${cpa.sogA.toFixed(1)} kn</div>
+    </div>`,
+    { permanent: true, direction: 'top', className: 'cpa-tooltip' }
+  )
+  
+  // Marker for Ship B at CPA position
+  const markerB = L.circleMarker([cpa.positionB.lat, cpa.positionB.lon], {
+    radius: 10,
+    fillColor: colorB,
+    color: '#fff',
+    weight: 2,
+    opacity: 1,
+    fillOpacity: 0.9,
+  }).addTo(cpaLayer)
+  
+  markerB.bindTooltip(
+    `<div style="font-size:11px;">
+      <div style="font-weight:600;">${cpa.nameB}</div>
+      <div>CPA时刻位置</div>
+      <div>航速: ${cpa.sogB.toFixed(1)} kn</div>
+    </div>`,
+    { permanent: true, direction: 'top', className: 'cpa-tooltip' }
+  )
+  
+  // Shortest line between the two ships at CPA
+  const lineColor = cpa.safetyStatus === 'danger' ? '#ef4444' : 
+                    cpa.safetyStatus === 'warning' ? '#f59e0b' : '#10b981'
+  
+  const shortestLine = L.polyline(
+    [
+      [cpa.positionA.lat, cpa.positionA.lon],
+      [cpa.positionB.lat, cpa.positionB.lon],
+    ],
+    {
+      color: lineColor,
+      weight: 3,
+      opacity: 0.8,
+      dashArray: '10, 5',
+    }
+  ).addTo(cpaLayer)
+  
+  // Distance label at midpoint
+  const midLat = (cpa.positionA.lat + cpa.positionB.lat) / 2
+  const midLon = (cpa.positionA.lon + cpa.positionB.lon) / 2
+  
+  const distanceIcon = L.divIcon({
+    html: `<div style="
+      background: ${lineColor}; 
+      color: white; 
+      padding: 2px 6px; 
+      border-radius: 4px; 
+      font-size: 11px; 
+      font-weight: 600;
+      white-space: nowrap;
+    ">${cpa.minDistanceNm} nm</div>`,
+    className: '',
+    iconSize: [60, 20],
+    iconAnchor: [30, 10],
+  })
+  
+  L.marker([midLat, midLon], { icon: distanceIcon }).addTo(cpaLayer)
+  
+  cpaLayer.addTo(map)
+  
+  // Fit bounds to show both positions
+  map.fitBounds(
+    [
+      [cpa.positionA.lat, cpa.positionA.lon],
+      [cpa.positionB.lat, cpa.positionB.lon],
+    ],
+    { padding: [100, 100] }
+  )
+}
+
+function clearCPA() {
+  if (cpaLayer) {
+    map.removeLayer(cpaLayer)
+    cpaLayer = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
   (mmsi) => {
     clearStopPoints()
     clearAnimation()
+    clearCPA()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -534,6 +645,18 @@ watch(
   () => store.animationData?.currentFrameIndex,
   () => {
     updateAnimationFrame()
+  },
+)
+
+// Watch CPA result
+watch(
+  () => store.cpaResult,
+  (result) => {
+    if (result) {
+      renderCPA()
+    } else {
+      clearCPA()
+    }
   },
 )
 

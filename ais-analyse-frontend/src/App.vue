@@ -37,6 +37,10 @@ function onDetectStops(distanceThresholdM: number, timeThresholdMinutes: number)
 function onToggleAnimation() {
   // Animation panel toggled, MapView will watch for animationData changes
 }
+
+function onAnalyzeCpa() {
+  // CPA analysis triggered from LeftPanel
+}
 </script>
 
 <template>
@@ -52,6 +56,7 @@ function onToggleAnimation() {
         @toggle-heatmap="onToggleHeatmap"
         @detect-stops="onDetectStops"
         @toggle-animation="onToggleAnimation"
+        @analyze-cpa="onAnalyzeCpa"
       />
       <MapView ref="mapViewRef" />
       <RightPanel />

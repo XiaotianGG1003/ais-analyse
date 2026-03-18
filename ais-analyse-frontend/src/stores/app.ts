@@ -91,6 +91,24 @@ export const useAppStore = defineStore('app', () => {
   } | null>(null)
   const animationTimer = ref<number | null>(null)
 
+  // CPA (Closest Point of Approach)
+  const cpaResult = ref<{
+    mmsiA: number
+    nameA: string
+    mmsiB: number
+    nameB: string
+    cpaTime: string
+    minDistanceM: number
+    minDistanceNm: number
+    safetyStatus: 'danger' | 'warning' | 'safe'
+    safetyText: string
+    positionA: { lon: number; lat: number }
+    positionB: { lon: number; lat: number }
+    sogA: number
+    sogB: number
+    shortestLine: { a: { lon: number; lat: number }; b: { lon: number; lat: number } }
+  } | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -118,6 +136,8 @@ export const useAppStore = defineStore('app', () => {
       animationTimer.value = null
     }
     animationData.value = null
+    // Clear CPA
+    cpaResult.value = null
     if (mmsi) {
       rightPanelOpen.value = true
       activeRightTab.value = 'detail'
@@ -408,6 +428,41 @@ export const useAppStore = defineStore('app', () => {
     animationData.value.currentFrameIndex = Math.max(0, Math.min(index, animationData.value.frames.length - 1))
   }
 
+  /** 最近接近点分析 (CPA) */
+  async function fetchCPA(mmsiA: number, mmsiB: number) {
+    const shipA = ships.value.find((s) => s.mmsi === mmsiA)
+    const shipB = ships.value.find((s) => s.mmsi === mmsiB)
+    if (!shipA || !shipB) {
+      showToast('请选择两艘有效的船舶', 'warning')
+      return
+    }
+    showToast(`正在分析 ${shipA.vessel_name} 与 ${shipB.vessel_name} 的最近接近点…`, 'info')
+    try {
+      const res = await api.analyzeCPA(mmsiA, mmsiB)
+      cpaResult.value = {
+        mmsiA: res.mmsi_a,
+        nameA: res.name_a,
+        mmsiB: res.mmsi_b,
+        nameB: res.name_b,
+        cpaTime: res.cpa_time,
+        minDistanceM: res.min_distance_m,
+        minDistanceNm: res.min_distance_nm,
+        safetyStatus: res.safety_status,
+        safetyText: res.safety_text,
+        positionA: res.position_a,
+        positionB: res.position_b,
+        sogA: res.sog_a,
+        sogB: res.sog_b,
+        shortestLine: res.shortest_line,
+      }
+      activeRightTab.value = 'analysis'
+      showToast(`最小距离: ${res.min_distance_nm} 海里，状态: ${res.safety_text}`, 
+        res.safety_status === 'safe' ? 'success' : res.safety_status === 'warning' ? 'warning' : 'error')
+    } catch (e: unknown) {
+      showToast('CPA 分析失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -548,6 +603,7 @@ export const useAppStore = defineStore('app', () => {
     predictionResult,
     stopDetectionResult,
     animationData,
+    cpaResult,
     heatmapVisible,
     toasts,
     showToast,
@@ -565,6 +621,7 @@ export const useAppStore = defineStore('app', () => {
     pauseAnimation,
     stopAnimation,
     setAnimationFrame,
+    fetchCPA,
     toggleLeftPanel,
     toggleRightPanel,
   }
