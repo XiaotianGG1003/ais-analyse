@@ -13,6 +13,9 @@ const stopDistance = ref(500)  // meters
 const stopTime = ref(30)       // minutes
 const animationPanelOpen = ref(false)
 const animationStep = ref(60)  // seconds
+const cpaPanelOpen = ref(false)
+const cpaShipA = ref<number | null>(null)
+const cpaShipB = ref<number | null>(null)
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -86,6 +89,7 @@ const emit = defineEmits<{
   toggleHeatmap: []
   detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
   toggleAnimation: []
+  analyzeCpa: []
 }>()
 
 function onQueryTrack() {
@@ -147,6 +151,22 @@ function onToggleAnimation() {
 
 async function onLoadAnimation() {
   await store.fetchAnimationData(animationStep.value)
+}
+
+function onToggleCPA() {
+  cpaPanelOpen.value = !cpaPanelOpen.value
+}
+
+async function onAnalyzeCPA() {
+  if (!cpaShipA.value || !cpaShipB.value) {
+    store.showToast('请选择两艘船舶', 'warning')
+    return
+  }
+  if (cpaShipA.value === cpaShipB.value) {
+    store.showToast('两艘船舶不能相同', 'warning')
+    return
+  }
+  await store.fetchCPA(cpaShipA.value, cpaShipB.value)
 }
 
 function onCalcDist() {
@@ -495,6 +515,17 @@ onBeforeUnmount(() => {
             <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
           轨迹回放
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleCPA"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          最近接近点
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
@@ -860,6 +891,54 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- CPA Panel -->
+    <div v-if="cpaPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">最近接近点分析 (CPA)</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="cpaPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">船舶 A</span>
+          <select
+            v-model.number="cpaShipA"
+            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          >
+            <option :value="null">选择船舶...</option>
+            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
+              {{ s.vessel_name }} ({{ s.mmsi }})
+            </option>
+          </select>
+        </div>
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">船舶 B</span>
+          <select
+            v-model.number="cpaShipB"
+            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          >
+            <option :value="null">选择船舶...</option>
+            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
+              {{ s.vessel_name }} ({{ s.mmsi }})
+            </option>
+          </select>
+        </div>
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+          @click="onAnalyzeCPA"
+        >
+          分析最近接近点
+        </button>
       </div>
     </div>
 

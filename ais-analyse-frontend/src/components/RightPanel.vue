@@ -196,15 +196,16 @@ function renderSOGDistChart() {
   })
 }
 
-function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'stops') {
+function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'stops' | 'cpa') {
   if (item === 'area') store.areaDetectionResult = null
   if (item === 'distance') store.distanceResult = null
   if (item === 'prediction') store.predictionResult = null
   if (item === 'stops') store.stopDetectionResult = null
+  if (item === 'cpa') store.cpaResult = null
 }
 
 const hasAnalysis = () =>
-  store.areaDetectionResult || store.distanceResult || store.predictionResult || store.stopDetectionResult
+  store.areaDetectionResult || store.distanceResult || store.predictionResult || store.stopDetectionResult || store.cpaResult
 
 window.addEventListener('resize', handleResize)
 onUnmounted(() => {
@@ -812,6 +813,115 @@ onUnmounted(() => {
                   </div>
                   <div class="mt-0.5 text-slate-600">{{ stop.pointCount }} 个轨迹点</div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CPA Result -->
+        <div v-if="store.cpaResult" class="space-y-3 mt-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              最近接近点分析 (CPA)
+            </h4>
+            <button
+              class="text-slate-500 hover:text-slate-300"
+              @click="clearAnalysisItem('cpa')"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div 
+            class="rounded-lg border p-3"
+            :class="{
+              'border-red-500/30 bg-red-500/5': store.cpaResult.safetyStatus === 'danger',
+              'border-amber-500/30 bg-amber-500/5': store.cpaResult.safetyStatus === 'warning',
+              'border-emerald-500/30 bg-emerald-500/5': store.cpaResult.safetyStatus === 'safe'
+            }"
+          >
+            <!-- Safety Status Badge -->
+            <div class="flex items-center justify-center mb-3">
+              <span 
+                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
+                :class="{
+                  'bg-red-500/20 text-red-400 border border-red-500/30': store.cpaResult.safetyStatus === 'danger',
+                  'bg-amber-500/20 text-amber-400 border border-amber-500/30': store.cpaResult.safetyStatus === 'warning',
+                  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30': store.cpaResult.safetyStatus === 'safe'
+                }"
+              >
+                {{ store.cpaResult.safetyText }}
+              </span>
+            </div>
+            
+            <!-- Distance Display -->
+            <div class="text-center mb-3">
+              <div 
+                class="text-3xl font-bold font-mono"
+                :class="{
+                  'text-red-400': store.cpaResult.safetyStatus === 'danger',
+                  'text-amber-400': store.cpaResult.safetyStatus === 'warning',
+                  'text-emerald-400': store.cpaResult.safetyStatus === 'safe'
+                }"
+              >
+                {{ store.cpaResult.minDistanceNm.toFixed(2) }}
+              </div>
+              <div class="text-[10px] text-slate-500">海里 (nm)</div>
+              <div class="text-[10px] text-slate-400">
+                {{ Math.round(store.cpaResult.minDistanceM) }} 米
+              </div>
+            </div>
+            
+            <!-- CPA Time -->
+            <div class="flex justify-between items-center text-[11px] mb-3 p-2 rounded bg-slate-800/50">
+              <span class="text-slate-500">最近接近时间</span>
+              <span class="font-mono text-slate-200">
+                {{ new Date(store.cpaResult.cpaTime).toLocaleString() }}
+              </span>
+            </div>
+            
+            <!-- Ships Info -->
+            <div class="space-y-2">
+              <!-- Ship A -->
+              <div class="flex items-center justify-between p-2 rounded bg-slate-800/30">
+                <div class="flex items-center gap-2">
+                  <div 
+                    class="w-3 h-3 rounded-full"
+                    :style="{ background: store.ships.find(s => s.mmsi === store.cpaResult?.mmsiA)?.color || '#0EA5E9' }"
+                  ></div>
+                  <span class="text-xs text-slate-300">{{ store.cpaResult.nameA }}</span>
+                </div>
+                <span class="text-[10px] text-slate-400">{{ store.cpaResult.sogA.toFixed(1) }} kn</span>
+              </div>
+              
+              <!-- Ship B -->
+              <div class="flex items-center justify-between p-2 rounded bg-slate-800/30">
+                <div class="flex items-center gap-2">
+                  <div 
+                    class="w-3 h-3 rounded-full"
+                    :style="{ background: store.ships.find(s => s.mmsi === store.cpaResult?.mmsiB)?.color || '#10B981' }"
+                  ></div>
+                  <span class="text-xs text-slate-300">{{ store.cpaResult.nameB }}</span>
+                </div>
+                <span class="text-[10px] text-slate-400">{{ store.cpaResult.sogB.toFixed(1) }} kn</span>
+              </div>
+            </div>
+            
+            <!-- Positions -->
+            <div class="mt-3 pt-3 border-t border-slate-700/30 space-y-1">
+              <div class="text-[10px] text-slate-500 mb-1">CPA 时刻位置</div>
+              <div class="text-[10px] font-mono text-slate-400">
+                A: {{ store.cpaResult.positionA.lon.toFixed(4) }}°E, {{ store.cpaResult.positionA.lat.toFixed(4) }}°N
+              </div>
+              <div class="text-[10px] font-mono text-slate-400">
+                B: {{ store.cpaResult.positionB.lon.toFixed(4) }}°E, {{ store.cpaResult.positionB.lat.toFixed(4) }}°N
               </div>
             </div>
           </div>
