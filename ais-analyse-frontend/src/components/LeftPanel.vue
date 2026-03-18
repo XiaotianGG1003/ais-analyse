@@ -104,6 +104,10 @@ async function onSearchVessel() {
   await store.searchShips(store.searchKeyword)
 }
 
+function onClearSearch() {
+  store.searchKeyword = ''
+}
+
 function onAreaDetect() {
   if (!store.selectedShip) {
     store.showToast('请先选择船舶', 'warning')
@@ -383,22 +387,36 @@ onBeforeUnmount(() => {
     <!-- Ship Search -->
     <div class="px-4 py-3 border-b border-slate-700/20">
       <label class="text-xs text-slate-500 font-medium mb-2 block">船舶查询</label>
-      <div class="relative">
-        <svg
-          class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <svg
+            class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            placeholder="MMSI / 船名（回车搜索）"
+            class="w-full pl-8 py-1.5 text-xs rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+            v-model="store.searchKeyword"
+            @keyup.enter="onSearchVessel"
+          />
+        </div>
+        <button
+          class="px-2.5 py-1.5 text-xs font-medium rounded-md border border-ocean-500/40 text-ocean-300 hover:bg-ocean-500/10 transition"
+          @click="onSearchVessel"
         >
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
-        <input
-          type="text"
-          placeholder="MMSI / 船名（回车搜索）"
-          class="w-full pl-8 py-1.5 text-xs rounded-md border border-slate-700 outline-none focus:border-ocean-500"
-          style="background: #1a2332; color: #e2e8f0"
-          v-model="store.searchKeyword"
-          @keyup.enter="onSearchVessel"
-        />
+          搜索
+        </button>
+        <button
+          class="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700/50 transition"
+          @click="onClearSearch"
+        >
+          清除
+        </button>
       </div>
     </div>
 
