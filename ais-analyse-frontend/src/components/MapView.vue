@@ -504,6 +504,67 @@ function clearNonSimilarRenderings() {
   store.predictionResult = null
 }
 
+function clearOtherOperationsForManualPrediction() {
+  if (heatmapVisible.value) {
+    hideHeatmap()
+  }
+
+  if (predictionLayer) {
+    map.removeLayer(predictionLayer)
+    predictionLayer = null
+  }
+
+  if (similarTracksLayer) {
+    map.removeLayer(similarTracksLayer)
+    similarTracksLayer = null
+  }
+
+  if (distanceLine) {
+    map.removeLayer(distanceLine)
+    distanceLine = null
+  }
+
+  Object.entries(trackLayers).forEach(([key, layer]) => {
+    map.removeLayer(layer)
+    delete trackLayers[Number(key)]
+  })
+  trackCount.value = 0
+
+  drawnItems.clearLayers()
+  stopAreaDraw()
+
+  clearStopPoints()
+  clearAnimation()
+  clearCPA()
+
+  clearShipMarkers()
+
+  if (clickedTrackLayer) {
+    map.removeLayer(clickedTrackLayer)
+    clickedTrackLayer = null
+  }
+  clickedPoints = []
+  clickedTrackCount.value = 0
+  lockTrackDrawingForSimilarView = false
+
+  store.trackVisible = false
+  store.trackGeoJSON = null
+  store.trackStatistics = null
+  store.areaDetectionResult = null
+  store.distanceResult = null
+  store.predictionResult = null
+  store.similarTracksResult = []
+  store.similarQueryInfo = null
+  store.stopDetectionResult = null
+  store.cpaResult = null
+  store.heatmapVisible = false
+
+  if (store.animationData) {
+    store.stopAnimation()
+    store.animationData = null
+  }
+}
+
 // ---- Distance Calculation ----
 async function calcDistance(mmsiA: number, mmsiB: number) {
   const ship1 = store.ships.find((s) => s.mmsi === mmsiA)
@@ -607,6 +668,17 @@ function drawPredictionFromStore() {
   predictionLayer = predGroup
 }
 
+function focusPredictionFromStore() {
+  if (!map || !store.predictionResult) return
+  const coords = store.predictionResult.predictedTrack.coordinates || []
+  if (coords.length < 2) return
+
+  const latlngs: L.LatLngExpression[] = coords.map(
+    (c: number[]) => [c[1], c[0]] as [number, number],
+  )
+  map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20], maxZoom: 16 })
+}
+
 function drawSimilarTracksFromStore() {
   if (similarTracksLayer) {
     map.removeLayer(similarTracksLayer)
@@ -665,9 +737,10 @@ async function toggleManualPredictionMode() {
   }
 
   if (!store.manualPredictMode) {
+    clearOtherOperationsForManualPrediction()
     lockTrackDrawingForSimilarView = false
     store.manualPredictMode = true
-    store.showToast('手绘模式已开启：先在地图上点击轨迹点，再次点击“手绘预测”开始预测', 'info')
+    store.showToast('已清空其它操作，手绘模式已开启：先在地图上绘制轨迹，再次点击“手绘预测”开始预测', 'info')
     return
   }
 
@@ -680,6 +753,7 @@ async function toggleManualPredictionMode() {
   await store.fetchPredictionFromPoints(manualPoints, 60, 60)
   clearNonPredictionRenderings()
   drawPredictionFromStore()
+  focusPredictionFromStore()
   store.manualPredictMode = false
 }
 
