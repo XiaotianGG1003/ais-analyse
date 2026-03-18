@@ -17,6 +17,7 @@ const cpaPanelOpen = ref(false)
 const cpaShipA = ref<number | null>(null)
 const cpaShipB = ref<number | null>(null)
 const importDrawerOpen = ref(false)
+const activeQuick = ref('1h')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
 const importPath = ref('')
@@ -81,16 +82,16 @@ function onShipPageSizeChange() {
 store.timeStart = '2025-01-01T00:00'
 store.timeEnd = '2025-01-02T00:00'
 
-const emit = defineEmits<{
-  queryTrack: []
-  areaDetect: []
-  predict: []
-  calcDistance: [shipA: number, shipB: number]
-  toggleHeatmap: []
-  detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
-  toggleAnimation: []
-  analyzeCpa: []
-}>()
+const emit = defineEmits([
+  'queryTrack',
+  'areaDetect', 
+  'predict',
+  'calcDistance',
+  'toggleHeatmap',
+  'detectStops',
+  'toggleAnimation',
+  'analyzeCpa'
+])
 
 function onQueryTrack() {
   if (!store.selectedShip) {
@@ -155,6 +156,9 @@ async function onLoadAnimation() {
 
 function onToggleCPA() {
   cpaPanelOpen.value = !cpaPanelOpen.value
+  if (!cpaPanelOpen.value) {
+    emit('analyzeCpa')
+  }
 }
 
 async function onAnalyzeCPA() {
@@ -736,6 +740,54 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- CPA Panel -->
+    <div v-if="cpaPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">最近接近点分析 (CPA)</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="cpaPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">船舶 A</span>
+          <select
+            v-model.number="cpaShipA"
+            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          >
+            <option :value="null">选择船舶...</option>
+            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
+              {{ s.vessel_name }} ({{ s.mmsi }})
+            </option>
+          </select>
+        </div>
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">船舶 B</span>
+          <select
+            v-model.number="cpaShipB"
+            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          >
+            <option :value="null">选择船舶...</option>
+            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
+              {{ s.vessel_name }} ({{ s.mmsi }})
+            </option>
+          </select>
+        </div>
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+          @click="onAnalyzeCPA"
+        >
+          分析最近接近点
+        </button>
+      </div>
+    </div>
+
     <!-- Import Panel -->
     <div v-if="importDrawerOpen" class="px-4 py-3 border-b border-slate-700/20">
       <div class="flex items-center justify-between mb-2">
@@ -747,14 +799,14 @@ onBeforeUnmount(() => {
           </svg>
         </button>
       </div>
-
-      <input
-        ref="fileInputRef"
-        type="file"
-        accept=".csv"
-        class="hidden"
-        @change="onFileSelected"
-      />
+      <div class="space-y-3">
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".csv"
+          class="hidden"
+          @change="onFileSelected"
+        />
       <button
         class="w-full py-2 text-xs font-medium rounded-md flex items-center justify-center gap-2 border transition"
         :class="importing
@@ -891,54 +943,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- CPA Panel -->
-    <div v-if="cpaPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
-      <div class="flex items-center justify-between mb-2">
-        <label class="text-xs text-slate-500 font-medium">最近接近点分析 (CPA)</label>
-        <button class="text-slate-500 hover:text-slate-300" @click="cpaPanelOpen = false">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      </div>
-      <div class="space-y-3">
-        <div>
-          <span class="text-[10px] text-slate-500 mb-1 block">船舶 A</span>
-          <select
-            v-model.number="cpaShipA"
-            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
-            style="background: #1a2332; color: #e2e8f0"
-          >
-            <option :value="null">选择船舶...</option>
-            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
-              {{ s.vessel_name }} ({{ s.mmsi }})
-            </option>
-          </select>
-        </div>
-        <div>
-          <span class="text-[10px] text-slate-500 mb-1 block">船舶 B</span>
-          <select
-            v-model.number="cpaShipB"
-            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
-            style="background: #1a2332; color: #e2e8f0"
-          >
-            <option :value="null">选择船舶...</option>
-            <option v-for="s in store.ships" :key="s.mmsi" :value="s.mmsi">
-              {{ s.vessel_name }} ({{ s.mmsi }})
-            </option>
-          </select>
-        </div>
-        <button
-          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
-          style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
-          @click="onAnalyzeCPA"
-        >
-          分析最近接近点
-        </button>
       </div>
     </div>
 
