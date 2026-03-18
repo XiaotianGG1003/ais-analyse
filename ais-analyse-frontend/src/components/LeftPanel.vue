@@ -62,7 +62,7 @@ function onQueryTrack() {
 }
 
 async function onSearchVessel() {
-  await store.queryVesselByMMSI(store.searchKeyword)
+  await store.searchShips(store.searchKeyword)
 }
 
 function onAreaDetect() {

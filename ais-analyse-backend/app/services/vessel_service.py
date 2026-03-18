@@ -16,25 +16,26 @@ from app.models.vessel import (
 async def search_vessels(
     db: AsyncSession, keyword: str, limit: int = 20
 ) -> list[VesselBrief]:
-    """按 MMSI 或船名搜索船舶"""
-    # 判断是否为纯数字（MMSI搜索）
+    """按 MMSI（模糊）或船名搜索船舶"""
+    # 纯数字关键词按 MMSI 模糊匹配
     if keyword.isdigit():
         query = text("""
-            SELECT DISTINCT mmsi, vessel_name, vessel_type, length, width
+            SELECT DISTINCT ON (mmsi) mmsi, vessel_name, vessel_type, length, width
             FROM ais_raw
-            WHERE mmsi = :mmsi
+            WHERE CAST(mmsi AS TEXT) LIKE :pattern
+            ORDER BY mmsi, base_date_time DESC
             LIMIT :limit
         """)
-        result = await db.execute(query, {"mmsi": int(keyword), "limit": limit})
+        result = await db.execute(query, {"pattern": f"{keyword}%", "limit": limit})
     else:
         query = text("""
             SELECT DISTINCT ON (mmsi) mmsi, vessel_name, vessel_type, length, width
             FROM ais_raw
             WHERE vessel_name ILIKE :pattern
-            ORDER BY mmsi
+            ORDER BY mmsi, base_date_time DESC
             LIMIT :limit
         """)
-        result = await db.execute(query, {"pattern": f"%{keyword}%", "limit": limit})
+        result = await db.execute(query, {"pattern": f"{keyword}%", "limit": limit})
 
     return [
         VesselBrief(
