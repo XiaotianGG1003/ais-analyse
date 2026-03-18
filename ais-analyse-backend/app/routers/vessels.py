@@ -70,3 +70,14 @@ async def get_vessel_track(
     if not track:
         raise HTTPException(status_code=404, detail="未找到该时间段的轨迹数据")
     return {"code": 200, "data": track.model_dump()}
+
+
+@router.get("/center", response_model=dict)
+async def get_trajectory_center(
+    db: AsyncSession = Depends(get_db),
+):
+    """轨迹库中心点"""
+    center = await vessel_service.get_trajectory_center(db)
+    if not center:
+        raise HTTPException(status_code=404, detail="轨迹库暂无可用坐标数据")
+    return {"code": 200, "data": center}

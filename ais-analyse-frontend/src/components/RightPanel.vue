@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onUnmounted } from 'vue'
-import * as echarts from 'echarts'
+import { use, init, type ECharts } from 'echarts/core'
+import { LineChart, BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES, NAV_STATUS } from '@/types'
 
+use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRenderer])
+
 const store = useAppStore()
+const emit = defineEmits<{
+  focusSimilarTrack: [coords: number[][]]
+}>()
 
 const speedChartEl = ref<HTMLDivElement>()
 const sogDistChartEl = ref<HTMLDivElement>()
-let speedChart: echarts.ECharts | null = null
-let sogDistChart: echarts.ECharts | null = null
+let speedChart: ECharts | null = null
+let sogDistChart: ECharts | null = null
 
 function formatUtcHm(time: string) {
   const d = new Date(time)
@@ -60,7 +68,7 @@ function renderSpeedChart() {
   if (!ship || !speedChartEl.value || !stats) return
 
   if (speedChart) speedChart.dispose()
-  speedChart = echarts.init(speedChartEl.value)
+  speedChart = init(speedChartEl.value)
 
   const times: string[] = []
   const speeds: number[] = []
@@ -135,7 +143,7 @@ function renderSOGDistChart() {
   if (!ship || !sogDistChartEl.value || !stats) return
 
   if (sogDistChart) sogDistChart.dispose()
-  sogDistChart = echarts.init(sogDistChartEl.value)
+  sogDistChart = init(sogDistChartEl.value)
 
   const ranges = ['0-5', '5-10', '10-15', '15-20', '20+']
   const counts = [0, 0, 0, 0, 0]
@@ -196,16 +204,30 @@ function renderSOGDistChart() {
   })
 }
 
-function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'stops' | 'cpa') {
+function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' | 'stops' | 'cpa') {
   if (item === 'area') store.areaDetectionResult = null
   if (item === 'distance') store.distanceResult = null
   if (item === 'prediction') store.predictionResult = null
+  if (item === 'similar') {
+    store.similarTracksResult = []
+    store.similarQueryInfo = null
+  }
   if (item === 'stops') store.stopDetectionResult = null
   if (item === 'cpa') store.cpaResult = null
 }
 
+function onFocusSimilarTrack(coords: number[][]) {
+  if (!coords || coords.length < 2) return
+  emit('focusSimilarTrack', coords)
+}
+
 const hasAnalysis = () =>
-  store.areaDetectionResult || store.distanceResult || store.predictionResult || store.stopDetectionResult || store.cpaResult
+  store.areaDetectionResult
+  || store.distanceResult
+  || store.predictionResult
+  || store.similarTracksResult.length > 0
+  || store.stopDetectionResult
+  || store.cpaResult
 
 window.addEventListener('resize', handleResize)
 onUnmounted(() => {
@@ -709,7 +731,7 @@ onUnmounted(() => {
                 }}</span>
                 <span
                   class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                  >线性外推</span
+                  >Mutual Attention 模型</span
                 >
               </div>
               <div class="grid grid-cols-2 gap-2">
@@ -758,6 +780,84 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Similar Tracks Result -->
+        <div v-if="store.similarTracksResult.length > 0" class="space-y-3 mt-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M3 12h18" />
+                <path d="M3 6h18" />
+                <path d="M3 18h18" />
+              </svg>
+              相似轨迹结果
+            </h4>
+            <button
+              class="text-slate-500 hover:text-slate-300"
+              @click="clearAnalysisItem('similar')"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          <div v-if="store.similarQueryInfo" class="rounded-lg border border-ocean-500/20 bg-ocean-500/5 p-3">
+            <div class="text-[11px] font-medium text-ocean-400 mb-2">原始轨迹信息</div>
+            <div class="space-y-1 text-[10px]">
+              <div class="flex items-center justify-between text-slate-500">
+                <span>点数</span>
+                <span class="font-mono text-slate-200">{{ store.similarQueryInfo.points }} 个</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-500">
+                <span>起点</span>
+                <span class="font-mono text-slate-200">
+                  {{ store.similarQueryInfo.startPoint[0].toFixed(3) }}°E,
+                  {{ store.similarQueryInfo.startPoint[1].toFixed(3) }}°N
+                </span>
+              </div>
+              <div class="flex items-center justify-between text-slate-500">
+                <span>终点</span>
+                <span class="font-mono text-slate-200">
+                  {{ store.similarQueryInfo.endPoint[0].toFixed(3) }}°E,
+                  {{ store.similarQueryInfo.endPoint[1].toFixed(3) }}°N
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3 space-y-2">
+            <div
+              v-for="item in store.similarTracksResult"
+              :key="`${item.global_traj_id}-${item.rank}`"
+              class="rounded-md border border-slate-700/40 bg-slate-900/40 px-2.5 py-2 cursor-pointer hover:border-ocean-500/40 hover:bg-slate-900/60 transition"
+              @click="onFocusSimilarTrack(item.track.coordinates as number[][])"
+            >
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="text-ocean-400 font-medium">#{{ item.rank }} 相似轨迹</span>
+                <span class="text-slate-400 font-mono">global_traj_id: {{ item.global_traj_id }}</span>
+              </div>
+              <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                <span>轨迹点数</span>
+                <span class="font-mono text-slate-300">{{ item.track.coordinates.length }} 个</span>
+              </div>
+              <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                <span>起点</span>
+                <span class="font-mono text-slate-300">
+                  {{ item.track.coordinates[0][0].toFixed(3) }}°E, {{ item.track.coordinates[0][1].toFixed(3) }}°N
+                </span>
+              </div>
+              <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                <span>终点</span>
+                <span class="font-mono text-slate-300">
+                  {{ item.track.coordinates[item.track.coordinates.length - 1][0].toFixed(3) }}°E,
+                  {{ item.track.coordinates[item.track.coordinates.length - 1][1].toFixed(3) }}°N
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Stop Detection Result -->
         <div v-if="store.stopDetectionResult" class="space-y-3 mt-3">
           <div class="flex items-center justify-between">
@@ -778,6 +878,7 @@ onUnmounted(() => {
               </svg>
             </button>
           </div>
+
           <div class="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
             <div class="flex items-center gap-2 mb-3">
               <div class="w-6 h-6 rounded-full bg-orange-500/20 flex items-center justify-center">

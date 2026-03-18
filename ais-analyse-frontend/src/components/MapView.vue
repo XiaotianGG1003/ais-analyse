@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet-draw'
 import 'leaflet.heat'
 import { useAppStore } from '@/stores/app'
+import { getTrajectoryCenter } from '@/api'
 import { VESSEL_TYPES } from '@/types'
 import * as api from '@/api'
 
@@ -15,6 +16,9 @@ const shipMarkers: Record<number, L.Marker> = {}
 const trackLayers: Record<number, L.LayerGroup> = {}
 let predictionLayer: L.LayerGroup | null = null
 let distanceLine: L.LayerGroup | null = null
+let clickedTrackLayer: L.LayerGroup | null = null
+let similarTracksLayer: L.LayerGroup | null = null
+let clickedPoints: Array<{ lon: number; lat: number }> = []
 let stopPointLayers: L.LayerGroup | null = null
 let animationLayer: L.LayerGroup | null = null
 let animationShipMarker: L.Marker | null = null
@@ -23,11 +27,16 @@ let cpaLayer: L.LayerGroup | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
+let isMouseLineDrawing = false
+let lastDrawLatLng: L.LatLng | null = null
+const MIN_DRAW_DISTANCE_METERS = 20
+let lockTrackDrawingForSimilarView = false
 
 const mapZoom = ref(8)
 const mapCenterLat = ref(31.0)
 const mapCenterLng = ref(122.0)
 const trackCount = ref(0)
+const clickedTrackCount = ref(0)
 
 // ---- Heatmap ----
 let heatmapLayer: L.Layer | null = null
@@ -70,11 +79,146 @@ function initMap() {
   }).addTo(map)
 
   map.on('zoomend moveend', updateMapInfo)
+  map.on('mousedown', onMapMouseDownStartTrack)
+  map.on('mousemove', onMapMouseMoveTrack)
+  map.on('mouseup', onMapMouseUpEndTrack)
 
   drawnItems = new L.FeatureGroup()
   map.addLayer(drawnItems)
 
   updateMapInfo()
+}
+
+function shouldIgnoreMapClick(e: L.LeafletMouseEvent) {
+  const target = e.originalEvent?.target as HTMLElement | null
+  if (!target) return false
+  return Boolean(
+    target.closest('.leaflet-marker-icon') ||
+    target.closest('.leaflet-popup') ||
+    target.closest('.leaflet-control')
+  )
+}
+
+function renderClickedTrack() {
+  if (clickedTrackLayer) {
+    map.removeLayer(clickedTrackLayer)
+  }
+
+  const layer = L.layerGroup()
+  const latlngs: L.LatLngExpression[] = clickedPoints.map((p) => [p.lat, p.lon])
+
+  if (latlngs.length >= 2) {
+    layer.addLayer(
+      L.polyline(latlngs, {
+        color: '#38BDF8',
+        weight: 4,
+        opacity: 0.9,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }),
+    )
+  }
+
+  if (latlngs.length > 0) {
+    const start = latlngs[0] as [number, number]
+    layer.addLayer(
+      L.circleMarker(start, {
+        radius: 5,
+        fillColor: '#22C55E',
+        fillOpacity: 0.95,
+        color: '#166534',
+        weight: 1,
+      }).bindTooltip('起点'),
+    )
+  }
+
+  layer.addTo(map)
+  clickedTrackLayer = layer
+}
+
+function onMapMouseDownStartTrack(e: L.LeafletMouseEvent) {
+  if (isDrawing) return
+  if (lockTrackDrawingForSimilarView) return
+  if (store.predictionResult) return
+  if (shouldIgnoreMapClick(e)) return
+  if ((e.originalEvent as MouseEvent).button !== 0) return
+
+  isMouseLineDrawing = true
+  lastDrawLatLng = e.latlng
+  clickedPoints = [{ lon: e.latlng.lng, lat: e.latlng.lat }]
+  clickedTrackCount.value = 1
+  renderClickedTrack()
+  map.dragging.disable()
+}
+
+function onMapMouseMoveTrack(e: L.LeafletMouseEvent) {
+  if (!isMouseLineDrawing) return
+  if (!lastDrawLatLng) {
+    lastDrawLatLng = e.latlng
+  }
+
+  if (map.distance(lastDrawLatLng!, e.latlng) < MIN_DRAW_DISTANCE_METERS) return
+
+  clickedPoints.push({ lon: e.latlng.lng, lat: e.latlng.lat })
+  clickedTrackCount.value = clickedPoints.length
+  lastDrawLatLng = e.latlng
+  renderClickedTrack()
+}
+
+function onMapMouseUpEndTrack() {
+  if (!isMouseLineDrawing) return
+  isMouseLineDrawing = false
+  lastDrawLatLng = null
+  map.dragging.enable()
+}
+
+function clearClickedTrack() {
+  clickedPoints = []
+  clickedTrackCount.value = 0
+  lockTrackDrawingForSimilarView = false
+  if (clickedTrackLayer) {
+    map.removeLayer(clickedTrackLayer)
+    clickedTrackLayer = null
+  }
+  store.showToast('已清空点击轨迹', 'info')
+}
+
+async function clearAllTracks() {
+  clearClickedTrack()
+
+  Object.entries(trackLayers).forEach(([key, layer]) => {
+    map.removeLayer(layer)
+    delete trackLayers[Number(key)]
+  })
+  trackCount.value = 0
+
+  if (predictionLayer) {
+    map.removeLayer(predictionLayer)
+    predictionLayer = null
+  }
+
+  if (distanceLine) {
+    map.removeLayer(distanceLine)
+    distanceLine = null
+  }
+
+  if (similarTracksLayer) {
+    map.removeLayer(similarTracksLayer)
+    similarTracksLayer = null
+  }
+
+  store.trackVisible = false
+  store.trackGeoJSON = null
+  store.trackStatistics = null
+  store.predictionResult = null
+  store.similarTracksResult = []
+  store.distanceResult = null
+  store.manualPredictMode = false
+
+  renderShips()
+  await setDefaultViewFromTrajectoryExtent()
+
+  store.showToast('已清空所有轨迹', 'success')
 }
 
 function updateMapInfo() {
@@ -87,6 +231,48 @@ function updateMapInfo() {
 
 function resetMapView() {
   map.setView([31.0, 122.0], 8)
+}
+
+function focusTrajectoryCenter(lat: number, lon: number) {
+  if (!map) return
+  map.setView([lat, lon], Math.max(map.getZoom(), 8))
+}
+
+function focusSimilarTrack(coords: number[][]) {
+  if (!map || !coords || coords.length < 2) return
+  lockTrackDrawingForSimilarView = true
+  const latlngs: L.LatLngExpression[] = coords.map((c) => [c[1], c[0]] as [number, number])
+  map.fitBounds(L.latLngBounds(latlngs), { padding: [8, 8], maxZoom: 16 })
+}
+
+async function setDefaultViewFromTrajectoryExtent() {
+  try {
+    const center = await getTrajectoryCenter()
+    const hasValidBounds =
+      Number.isFinite(center.min_latitude)
+      && Number.isFinite(center.max_latitude)
+      && Number.isFinite(center.min_longitude)
+      && Number.isFinite(center.max_longitude)
+      && center.min_latitude < center.max_latitude
+      && center.min_longitude < center.max_longitude
+
+    if (hasValidBounds) {
+      map.fitBounds(
+        [
+          [center.min_latitude, center.min_longitude],
+          [center.max_latitude, center.max_longitude],
+        ],
+        { padding: [30, 30], maxZoom: 12 },
+      )
+      return
+    }
+
+    if (Number.isFinite(center.latitude) && Number.isFinite(center.longitude)) {
+      map.setView([center.latitude, center.longitude], Math.max(map.getZoom(), 8))
+    }
+  } catch {
+    map.setView([31.0, 122.0], 8)
+  }
 }
 
 // ---- Render Ships ----
@@ -128,7 +314,7 @@ function renderShips(selectedMmsi?: number) {
 }
 
 // Expose selectShip for popup button
-;(window as Record<string, unknown>).__selectShip = (mmsi: number) => {
+;(window as unknown as { __selectShip?: (mmsi: number) => void }).__selectShip = (mmsi: number) => {
   store.selectShip(mmsi)
 }
 
@@ -206,7 +392,7 @@ function toggleAreaDraw() {
   store.areaDrawMode = true
   store.showToast('请在地图上点击绘制矩形区域', 'info')
 
-  drawControl = new (L.Draw as any).Rectangle(map, {
+  const control = new (L.Draw as any).Rectangle(map, {
     shapeOptions: {
       color: '#0EA5E9',
       fillColor: '#0EA5E9',
@@ -215,16 +401,18 @@ function toggleAreaDraw() {
       dashArray: '6, 4',
     },
   })
-  drawControl.enable()
+  drawControl = control
+  control.enable()
 
   map.on(L.Draw.Event.CREATED, onDrawCreated)
 }
 
-function onDrawCreated(e: L.DrawEvents.Created) {
+function onDrawCreated(e: L.LeafletEvent) {
+  const createdEvent = e as unknown as L.DrawEvents.Created
   drawnItems.clearLayers()
-  drawnItems.addLayer(e.layer)
+  drawnItems.addLayer(createdEvent.layer)
   stopAreaDraw()
-  performAreaDetection((e.layer as L.Rectangle).getBounds())
+  performAreaDetection((createdEvent.layer as L.Rectangle).getBounds())
 }
 
 function stopAreaDraw() {
@@ -256,6 +444,64 @@ async function performAreaDetection(bounds: L.LatLngBounds) {
 function clearAreaDraw() {
   drawnItems.clearLayers()
   store.areaDetectionResult = null
+}
+
+function clearNonPredictionRenderings() {
+  Object.entries(trackLayers).forEach(([key, layer]) => {
+    map.removeLayer(layer)
+    delete trackLayers[Number(key)]
+  })
+  trackCount.value = 0
+
+  if (distanceLine) {
+    map.removeLayer(distanceLine)
+    distanceLine = null
+  }
+
+  if (similarTracksLayer) {
+    map.removeLayer(similarTracksLayer)
+    similarTracksLayer = null
+  }
+
+  drawnItems.clearLayers()
+  stopAreaDraw()
+
+  store.trackVisible = false
+  store.trackGeoJSON = null
+  store.trackStatistics = null
+  store.areaDetectionResult = null
+  store.distanceResult = null
+  store.similarTracksResult = []
+}
+
+function clearNonSimilarRenderings() {
+  clearShipMarkers()
+
+  Object.entries(trackLayers).forEach(([key, layer]) => {
+    map.removeLayer(layer)
+    delete trackLayers[Number(key)]
+  })
+  trackCount.value = 0
+
+  if (predictionLayer) {
+    map.removeLayer(predictionLayer)
+    predictionLayer = null
+  }
+
+  if (distanceLine) {
+    map.removeLayer(distanceLine)
+    distanceLine = null
+  }
+
+  drawnItems.clearLayers()
+  stopAreaDraw()
+
+  store.trackVisible = false
+  store.trackGeoJSON = null
+  store.trackStatistics = null
+  store.areaDetectionResult = null
+  store.distanceResult = null
+  store.predictionResult = null
 }
 
 // ---- Distance Calculation ----
@@ -305,7 +551,12 @@ async function startPrediction() {
   if (!ship) return
 
   await store.fetchPrediction(60)
+  clearNonPredictionRenderings()
 
+  drawPredictionFromStore()
+}
+
+function drawPredictionFromStore() {
   if (!store.predictionResult) return
   const pred = store.predictionResult
   const coords = pred.predictedTrack.coordinates || []
@@ -356,6 +607,82 @@ async function startPrediction() {
   predictionLayer = predGroup
 }
 
+function drawSimilarTracksFromStore() {
+  if (similarTracksLayer) {
+    map.removeLayer(similarTracksLayer)
+    similarTracksLayer = null
+  }
+
+  const tracks = store.similarTracksResult || []
+  if (!tracks.length) return
+
+  const colors = ['#22D3EE', '#34D399', '#A3E635', '#F472B6', '#C084FC']
+  const layer = L.layerGroup()
+  const allLatLngs: L.LatLngExpression[] = []
+
+  tracks.forEach((item, idx) => {
+    const coords = item.track?.coordinates || []
+    if (coords.length < 2) return
+    const latlngs: L.LatLngExpression[] = coords.map((c: number[]) => [c[1], c[0]] as [number, number])
+    allLatLngs.push(...latlngs)
+    const color = colors[idx % colors.length]
+
+    layer.addLayer(
+      L.polyline(latlngs, {
+        color,
+        weight: 4,
+        opacity: 0.9,
+        lineCap: 'round',
+      }).bindTooltip(`相似轨迹 #${item.rank}`),
+    )
+  })
+
+  layer.addTo(map)
+  similarTracksLayer = layer
+
+  if (allLatLngs.length > 1) {
+    map.fitBounds(L.latLngBounds(allLatLngs), { padding: [4, 4], maxZoom: 15 })
+    map.zoomIn(1)
+  }
+}
+
+async function showSimilarTracks() {
+  if (clickedPoints.length < 2) {
+    store.showToast('请先点击一段轨迹后再检索相似轨迹', 'warning')
+    return
+  }
+  const queryPoints = [...clickedPoints]
+  await store.fetchSimilarTracksFromPoints(queryPoints, 5)
+  clearNonSimilarRenderings()
+  drawSimilarTracksFromStore()
+  renderClickedTrack()
+}
+
+async function toggleManualPredictionMode() {
+  if (store.selectedShip) {
+    store.showToast('当前已选船舶，请使用“轨迹预测”', 'warning')
+    return
+  }
+
+  if (!store.manualPredictMode) {
+    lockTrackDrawingForSimilarView = false
+    store.manualPredictMode = true
+    store.showToast('手绘模式已开启：先在地图上点击轨迹点，再次点击“手绘预测”开始预测', 'info')
+    return
+  }
+
+  if (clickedPoints.length < 2) {
+    store.showToast('请先在地图上至少点击 2 个点', 'warning')
+    return
+  }
+
+  const manualPoints = [...clickedPoints]
+  await store.fetchPredictionFromPoints(manualPoints, 60, 60)
+  clearNonPredictionRenderings()
+  drawPredictionFromStore()
+  store.manualPredictMode = false
+}
+
 // ---- Stop Detection ----
 function renderStopPoints() {
   clearStopPoints()
@@ -396,9 +723,9 @@ function renderStopPoints() {
   stopPointLayers.addTo(map)
 
   // Fit bounds to show all stops
-  const bounds = stops.map((s) => [s.lat, s.lon])
+  const bounds: L.LatLngTuple[] = stops.map((s) => [s.lat, s.lon])
   if (bounds.length > 0) {
-    map.fitBounds(bounds as L.LatLngExpression[], { padding: [50, 50] })
+    map.fitBounds(bounds, { padding: [50, 50] })
   }
 }
 
@@ -464,7 +791,9 @@ function updateAnimationFrame() {
   
   // Draw trail (last 10 points)
   const trailStart = Math.max(0, currentFrameIndex - 10)
-  const trailPoints = frames.slice(trailStart, currentFrameIndex + 1).map(f => [f.lat, f.lon])
+  const trailPoints: L.LatLngTuple[] = frames
+    .slice(trailStart, currentFrameIndex + 1)
+    .map((f) => [f.lat, f.lon])
   
   if (animationTrailLayer) {
     animationLayer.removeLayer(animationTrailLayer)
@@ -702,9 +1031,14 @@ onMounted(async () => {
   await nextTick()
   initMap()
   await store.fetchShips()
+  await setDefaultViewFromTrajectoryExtent()
+  await setDefaultViewFromTrajectoryExtent()
 })
 
 onUnmounted(() => {
+  map.off('mousedown', onMapMouseDownStartTrack)
+  map.off('mousemove', onMapMouseMoveTrack)
+  map.off('mouseup', onMapMouseUpEndTrack)
   if (map) map.remove()
 })
 
@@ -788,7 +1122,18 @@ async function refreshHeatmap() {
 }
 
 // Expose methods for parent
-defineExpose({ queryTrack, toggleAreaDraw, calcDistance, startPrediction, clearAreaDraw, toggleHeatmap, refreshHeatmap })
+defineExpose({
+  queryTrack,
+  toggleAreaDraw,
+  calcDistance,
+  startPrediction,
+  clearAreaDraw,
+  toggleManualPredictionMode,
+  focusTrajectoryCenter,
+  focusSimilarTrack,
+  toggleHeatmap,
+  refreshHeatmap,
+})
 </script>
 
 <template>
@@ -881,6 +1226,43 @@ defineExpose({ queryTrack, toggleAreaDraw, calcDistance, startPrediction, clearA
         缩放: {{ mapZoom }} · {{ mapCenterLat.toFixed(1) }}°N,
         {{ mapCenterLng.toFixed(1) }}°E
       </div>
+    </div>
+
+    <div class="absolute bottom-3 right-3 z-[1000] flex items-center gap-2">
+      <div
+        class="rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-400 font-mono"
+        style="background: rgba(17, 24, 39, 0.8)"
+      >
+        点击轨迹点: {{ clickedTrackCount }}
+      </div>
+      <button
+        class="rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-300 hover:text-white transition"
+        style="background: rgba(17, 24, 39, 0.92)"
+        @click="clearClickedTrack"
+      >
+        清空点击轨迹
+      </button>
+      <button
+        class="rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-300 hover:text-white transition"
+        style="background: rgba(17, 24, 39, 0.92)"
+        @click="showSimilarTracks"
+      >
+        显示相似轨迹
+      </button>
+      <button
+        class="w-7 h-7 rounded border border-slate-700/50 text-slate-300 hover:text-white flex items-center justify-center transition"
+        style="background: rgba(17, 24, 39, 0.92)"
+        title="清空所有轨迹"
+        @click="clearAllTracks"
+      >
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14H6L5 6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+          <path d="M9 6V4h6v2" />
+        </svg>
+      </button>
     </div>
   </main>
 </template>

@@ -9,10 +9,16 @@ from app.models.analysis import (
     AreaDetectionRequest,
     AreaDetectionResponse,
     DistanceResponse,
+    ManualPredictionRequest,
     PredictionResponse,
+    SimilarTracksRequest,
     TrackStatistics,
 )
 from app.services import analysis_service
+from app.services.predictor_service import (
+    find_similar_tracks_from_points,
+    predict_from_manual_points,
+)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 settings = get_settings()
@@ -94,3 +100,27 @@ async def predict_trajectory(
     if not result:
         raise HTTPException(status_code=404, detail="轨迹点不足，无法预测")
     return {"code": 200, "data": result.model_dump()}
+
+
+@router.post("/analysis/predict-manual", response_model=dict)
+async def predict_manual_trajectory(req: ManualPredictionRequest):
+    """手动点选轨迹预测：输入任意点，自动扩展到 120 点并补时间戳后进行预测。"""
+    try:
+        result = predict_from_manual_points(
+            req.points,
+            duration_minutes=req.duration_minutes,
+            step_seconds=req.step_seconds,
+        )
+        return {"code": 200, "data": result.model_dump()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/analysis/similar-tracks", response_model=dict)
+async def similar_tracks(req: SimilarTracksRequest):
+    """手动点选轨迹相似检索：返回最相似 Top-K 轨迹。"""
+    try:
+        result = find_similar_tracks_from_points(req.points, req.top_k)
+        return {"code": 200, "data": result.model_dump()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

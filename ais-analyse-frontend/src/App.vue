@@ -22,8 +22,20 @@ function onPredict() {
   mapViewRef.value?.startPrediction()
 }
 
+function onPredictManual() {
+  mapViewRef.value?.toggleManualPredictionMode()
+}
+
 function onCalcDistance(shipA: number, shipB: number) {
   mapViewRef.value?.calcDistance(shipA, shipB)
+}
+
+function onLocateTrajectoryCenter(lat: number, lon: number) {
+  mapViewRef.value?.focusTrajectoryCenter(lat, lon)
+}
+
+function onFocusSimilarTrack(coords: number[][]) {
+  mapViewRef.value?.focusSimilarTrack(coords)
 }
 
 function onToggleHeatmap() {
@@ -52,6 +64,8 @@ function onAnalyzeCpa() {
         @query-track="onQueryTrack"
         @area-detect="onAreaDetect"
         @predict="onPredict"
+        @predict-manual="onPredictManual"
+        @locate-trajectory-center="onLocateTrajectoryCenter"
         @calc-distance="onCalcDistance"
         @toggle-heatmap="onToggleHeatmap"
         @detect-stops="onDetectStops"
@@ -59,7 +73,7 @@ function onAnalyzeCpa() {
         @analyze-cpa="onAnalyzeCpa"
       />
       <MapView ref="mapViewRef" />
-      <RightPanel />
+      <RightPanel @focus-similar-track="onFocusSimilarTrack" />
     </div>
 
     <StatusBar />

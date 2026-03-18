@@ -24,11 +24,11 @@ python data_process/data_process.py --input data/ \\
 保存为 pickle 文件，内容为 list[dict]，每个 sample 包含：
     obs        : np.ndarray (120, 2)  float32  [lat, lon] 观测序列
     pred       : np.ndarray (360, 2)  float32  [lat, lon] 真实未来轨迹
-    traj_id    : int                           轨迹段编号
+    segment_id : int                           轨迹段编号
     mmsi       : int                           船舶标识
     start_time : pd.Timestamp                  obs 起始时间
     obs_time   : np.ndarray (120,)  int64      obs 各点 Unix 时间戳(秒)
-    sample_id  : int                           全局样本编号
+    global_traj_id : int                       全局样本编号
 """
 
 import argparse
@@ -152,7 +152,7 @@ def spline_interpolate_segment(seg_df, interval_sec=INTERVAL_SEC):
     )
 
 
-def sliding_window_samples(seg_df_interp, traj_id, mmsi):
+def sliding_window_samples(seg_df_interp, segment_id, mmsi):
     samples = []
 
     xy = seg_df_interp[["Latitude", "Longitude"]].values
@@ -171,7 +171,7 @@ def sliding_window_samples(seg_df_interp, traj_id, mmsi):
         sample = {
             "obs": obs.astype(np.float32),
             "pred": pred.astype(np.float32),
-            "traj_id": traj_id,
+            "segment_id": segment_id,
             "mmsi": int(mmsi),
             "start_time": pd.to_datetime(times[start], unit="s"),
             "obs_time": times[start : start + OBS_LEN],
@@ -550,7 +550,7 @@ def import_csv_to_mobilitydb(
     return total_segments
 
 
-def _process_one_segment(seg_df, traj_id, mmsi):
+def _process_one_segment(seg_df, segment_id, mmsi):
     samples = []
 
     if len(seg_df) < 2:
@@ -577,7 +577,7 @@ def _process_one_segment(seg_df, traj_id, mmsi):
 
     samples.extend(
         sliding_window_samples(
-            seg_df_interp, traj_id, mmsi
+            seg_df_interp, segment_id, mmsi
         )
     )
 
@@ -664,7 +664,7 @@ def _process_mmsi_df(df, mmsi):
     df = df.sort_values("Timestamp").drop_duplicates(subset=["Timestamp"]).reset_index(drop=True)
 
     all_samples = []
-    traj_id = 0
+    segment_id = 0
     start_idx = 0
 
     for i in range(1, len(df)):
@@ -675,14 +675,14 @@ def _process_mmsi_df(df, mmsi):
         if dt > MAX_TIME_GAP_SEC:
             seg_df = df.iloc[start_idx:i]
             start_idx = i
-            traj_id += 1
-            all_samples.extend(_process_one_segment(seg_df, traj_id, mmsi))
+            segment_id += 1
+            all_samples.extend(_process_one_segment(seg_df, segment_id, mmsi))
 
     # 最后一段
     if start_idx < len(df) - 1:
         seg_df = df.iloc[start_idx:]
-        traj_id += 1
-        all_samples.extend(_process_one_segment(seg_df, traj_id, mmsi))
+        segment_id += 1
+        all_samples.extend(_process_one_segment(seg_df, segment_id, mmsi))
 
     return all_samples
 
@@ -694,7 +694,7 @@ def process_from_mobilitydb(conn_params=None, table=MOBILITYDB_TABLE, mmsi_list=
         {
             "obs":        np.ndarray (OBS_LEN, 2)   float32  [lat, lon]
             "pred":       np.ndarray (PRED_LEN, 2)  float32  [lat, lon]
-            "traj_id":    int
+            "segment_id": int
             "mmsi":       int
             "start_time": pd.Timestamp
             "obs_time":   np.ndarray (OBS_LEN,)     int64 (unix seconds)
@@ -707,9 +707,9 @@ def process_from_mobilitydb(conn_params=None, table=MOBILITYDB_TABLE, mmsi_list=
         samples = _process_mmsi_df(df, mmsi)
         all_samples.extend(samples)
 
-    # 写入全局唯一 sample_id（与列表下标一致，供 /predict_by_sample 接口使用）
+    # 写入全局唯一 global_traj_id（与列表下标一致，供 /predict_by_sample 接口使用）
     for idx, sample in enumerate(all_samples):
-        sample["sample_id"] = idx
+        sample["global_traj_id"] = idx
 
     return all_samples
 
@@ -802,7 +802,7 @@ def process_from_ais_raw(conn_params=None, table="ais_raw", mmsi_list=None, prog
             )
 
     for sample_idx, sample in enumerate(all_samples):
-        sample["sample_id"] = sample_idx
+        sample["global_traj_id"] = sample_idx
 
     return all_samples
 
@@ -836,7 +836,7 @@ def generate_samples_pkl_from_mobilitydb(
             )
 
     for sample_idx, sample in enumerate(all_samples):
-        sample["sample_id"] = sample_idx
+        sample["global_traj_id"] = sample_idx
 
     out_pkl = os.path.abspath(out_pkl)
     os.makedirs(os.path.dirname(out_pkl), exist_ok=True)

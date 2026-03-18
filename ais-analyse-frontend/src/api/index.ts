@@ -58,6 +58,15 @@ export interface TrackResponse {
   point_count: number
 }
 
+export interface TrajectoryCenterData {
+  longitude: number
+  latitude: number
+  min_longitude: number
+  max_longitude: number
+  min_latitude: number
+  max_latitude: number
+}
+
 /* ---- Analysis ---- */
 
 export interface TrackStatisticsData {
@@ -93,6 +102,21 @@ export interface PredictionResponseData {
   method: string
 }
 
+export interface ManualTrackPoint {
+  lon: number
+  lat: number
+}
+
+export interface SimilarTrackItemData {
+  rank: number
+  global_traj_id: number
+  track: GeoJSON.LineString
+}
+
+export interface SimilarTracksResponseData {
+  tracks: SimilarTrackItemData[]
+}
+
 /* ---- API Functions ---- */
 
 export function searchVessels(keyword: string, limit = 20) {
@@ -115,6 +139,10 @@ export function getVesselTrack(mmsi: number, startTime: string, endTime: string)
   return request<TrackResponse>(
     `/vessels/${mmsi}/track?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`,
   )
+}
+
+export function getTrajectoryCenter() {
+  return request<TrajectoryCenterData>(`/vessels/center`)
 }
 
 export function getTrackStatistics(mmsi: number, startTime: string, endTime: string) {
@@ -145,6 +173,24 @@ export function predictTrajectory(mmsi: number, durationMinutes = 60) {
   return request<PredictionResponseData>(
     `/vessels/${mmsi}/prediction?duration_minutes=${durationMinutes}`,
   )
+}
+
+export function predictTrajectoryFromPoints(points: ManualTrackPoint[], durationMinutes = 60, stepSeconds = 60) {
+  return request<PredictionResponseData>(`/analysis/predict-manual`, {
+    method: 'POST',
+    body: JSON.stringify({
+      points,
+      duration_minutes: durationMinutes,
+      step_seconds: stepSeconds,
+    }),
+  })
+}
+
+export function getSimilarTracksFromPoints(points: ManualTrackPoint[], topK = 5) {
+  return request<SimilarTracksResponseData>(`/analysis/similar-tracks`, {
+    method: 'POST',
+    body: JSON.stringify({ points, top_k: topK }),
+  })
 }
 
 /* ---- Data Import ---- */

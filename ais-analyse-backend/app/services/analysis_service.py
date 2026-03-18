@@ -1,7 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
-
-import numpy as np
+from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,8 +8,10 @@ from app.models.analysis import (
     AreaDetectionRequest,
     AreaDetectionResponse,
     DistanceResponse,
+    ManualTrackPoint,
     PredictionResponse,
 )
+from app.services.predictor_service import predict_from_manual_points
 from app.utils.geo import ms_to_knots, meters_to_km
 
 
@@ -204,14 +204,14 @@ async def predict_trajectory(
     duration_minutes: int = 60,
     step_minutes: int = 5,
 ) -> PredictionResponse | None:
-    """轨迹预测 — 基于最近轨迹点的线性外推"""
+    """轨迹预测 — 基于 Mutual_Attention_opt 模型"""
     # 获取最近轨迹点
     query = text("""
-        SELECT longitude, latitude, base_date_time, sog, cog
+        SELECT longitude, latitude, base_date_time
         FROM ais_raw
         WHERE mmsi = :mmsi AND longitude IS NOT NULL AND latitude IS NOT NULL
         ORDER BY base_date_time DESC
-        LIMIT 10
+        LIMIT 120
     """)
     result = await db.execute(query, {"mmsi": mmsi})
     rows = result.fetchall()
@@ -221,44 +221,34 @@ async def predict_trajectory(
     # 逆序为时间升序
     rows = list(reversed(rows))
 
-    lons = np.array([r.longitude for r in rows], dtype=np.float64)
-    lats = np.array([r.latitude for r in rows], dtype=np.float64)
-    t = np.arange(len(rows), dtype=np.float64)
+    points = [
+        ManualTrackPoint(lon=float(r.longitude), lat=float(r.latitude))
+        for r in rows
+    ]
 
-    # 线性回归拟合
-    lon_coeffs = np.polyfit(t, lons, 1)
-    lat_coeffs = np.polyfit(t, lats, 1)
+    try:
+        prediction = predict_from_manual_points(
+            points=points,
+            duration_minutes=duration_minutes,
+            step_seconds=max(step_minutes * 60, 5),
+        )
+    except RuntimeError:
+        return None
 
-    # 外推
-    steps = duration_minutes // step_minutes
-    pred_coords: list[list[float]] = []
-    pred_times: list[str] = []
-    last_time = rows[-1].base_date_time
+    prediction_data = prediction.model_dump()
+    target_steps = max(duration_minutes // max(step_minutes, 1), 1)
+    source_step_seconds = 30
+    target_step_seconds = max(step_minutes * 60, source_step_seconds)
+    sample_stride = max(target_step_seconds // source_step_seconds, 1)
 
-    for i in range(1, steps + 1):
-        idx = len(rows) - 1 + i
-        pred_lon = float(np.polyval(lon_coeffs, idx))
-        pred_lat = float(np.polyval(lat_coeffs, idx))
-        pred_coords.append([pred_lon, pred_lat])
-        pred_ts = last_time + timedelta(minutes=step_minutes * i)
-        pred_times.append(pred_ts.isoformat())
+    coords = prediction_data.get("predicted_track", {}).get("coordinates", [])
+    times = prediction_data.get("predicted_timestamps", [])
+    sampled_coords = coords[::sample_stride][:target_steps]
+    sampled_times = times[::sample_stride][:target_steps]
 
-    # 置信度基于拟合 R² 的简单估算
-    lon_pred = np.polyval(lon_coeffs, t)
-    ss_res = float(np.sum((lons - lon_pred) ** 2))
-    ss_tot = float(np.sum((lons - np.mean(lons)) ** 2))
-    r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-    confidence = round(max(0.0, min(1.0, r_squared)), 2)
-
-    geojson = {
-        "type": "LineString",
-        "coordinates": [[rows[-1].longitude, rows[-1].latitude]] + pred_coords,
-    }
-
-    return PredictionResponse(
-        mmsi=mmsi,
-        predicted_track=geojson,
-        predicted_timestamps=pred_times,
-        confidence=confidence,
-        method="linear_extrapolation",
-    )
+    if isinstance(prediction_data.get("predicted_track"), dict):
+        prediction_data["predicted_track"]["coordinates"] = sampled_coords
+    prediction_data["predicted_timestamps"] = sampled_times
+    prediction_data["mmsi"] = mmsi
+    prediction_data["method"] = "mutual_attention_opt"
+    return PredictionResponse(**prediction_data)

@@ -44,4 +44,30 @@ class PredictionResponse(BaseModel):
     predicted_track: dict  # GeoJSON LineString
     predicted_timestamps: list[str] = []
     confidence: float
-    method: str = "linear_extrapolation"
+    method: str = "mutual_attention_opt"
+
+
+class ManualTrackPoint(BaseModel):
+    lon: float
+    lat: float
+
+
+class ManualPredictionRequest(BaseModel):
+    points: list[ManualTrackPoint] = Field(..., min_length=2, max_length=500)
+    duration_minutes: int = Field(default=60, ge=5, le=360)
+    step_seconds: int = Field(default=60, ge=5, le=300)
+
+
+class SimilarTrackItem(BaseModel):
+    rank: int
+    global_traj_id: int
+    track: dict  # GeoJSON LineString
+
+
+class SimilarTracksResponse(BaseModel):
+    tracks: list[SimilarTrackItem] = []
+
+
+class SimilarTracksRequest(BaseModel):
+    points: list[ManualTrackPoint] = Field(..., min_length=2, max_length=500)
+    top_k: int = Field(default=5, ge=1, le=10)

@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { VESSEL_TYPES } from '@/types'
-import { getImportTask, importAisCsv, importAisCsvByPath, listImportTasks } from '@/api'
+import { formatDateTimeLocal } from '@/utils/geo'
+import { getImportTask, importAisCsv, importAisCsvByPath, listImportTasks, getTrajectoryCenter } from '@/api'
 import type { ImportTaskStatus } from '@/api'
 
 const store = useAppStore()
@@ -85,6 +86,8 @@ const emit = defineEmits<{
   queryTrack: []
   areaDetect: []
   predict: []
+  predictManual: []
+  locateTrajectoryCenter: [lat: number, lon: number]
   calcDistance: [shipA: number, shipB: number]
   toggleHeatmap: []
   detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
@@ -119,7 +122,7 @@ function onAreaDetect() {
 
 function onPredict() {
   if (!store.selectedShip) {
-    store.showToast('请先选择船舶', 'warning')
+    emit('predictManual')
     return
   }
   emit('predict')
@@ -278,6 +281,12 @@ async function pollImportTask() {
         `导入成功：已复制 ${task.rows_inserted} 条原始记录；pkl样本 ${task.pkl_sample_count} 条${rebuildMsg}`,
         'success',
       )
+      try {
+        const center = await getTrajectoryCenter()
+        emit('locateTrajectoryCenter', center.latitude, center.longitude)
+        store.showToast('已自动定位到轨迹库中心位置', 'success')
+      } catch {
+      }
     } else if (task.status === 'failed') {
       stopImportPolling()
       importing.value = false
@@ -523,7 +532,7 @@ onBeforeUnmount(() => {
             <path d="M2 17l10 5 10-5" />
             <path d="M2 12l10 5 10-5" />
           </svg>
-          轨迹预测
+          {{ store.selectedShip ? '轨迹预测' : '手绘预测' }}
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
