@@ -207,7 +207,6 @@ function clearClickedTrack() {
     map.removeLayer(clickedTrackLayer)
     clickedTrackLayer = null
   }
-  store.showToast('已清空点击轨迹', 'info')
 }
 
 async function clearAllTracks() {
@@ -1576,13 +1575,6 @@ defineExpose({
       >
         点击轨迹点: {{ clickedTrackCount }}
       </div>
-      <button
-        class="rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-300 hover:text-white transition"
-        style="background: rgba(17, 24, 39, 0.92)"
-        @click="clearClickedTrack"
-      >
-        清空点击轨迹
-      </button>
       <button
         class="rounded px-2 py-1 border border-slate-700/50 text-[10px] text-slate-300 hover:text-white transition"
         style="background: rgba(17, 24, 39, 0.92)"
