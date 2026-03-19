@@ -86,7 +86,7 @@ const emit = defineEmits<{
   queryTrack: []
   areaDetect: []
   predict: []
-  predictManual: []
+  'predict-manual': []
   locateTrajectoryCenter: [lat: number, lon: number]
   calcDistance: [shipA: number, shipB: number]
   toggleHeatmap: []
@@ -122,7 +122,7 @@ function onAreaDetect() {
 
 function onPredict() {
   if (!store.selectedShip) {
-    emit('predictManual')
+    emit('predict-manual')
     return
   }
   emit('predict')

@@ -43,6 +43,14 @@ const clickedTrackCount = ref(0)
 let heatmapLayer: L.Layer | null = null
 const heatmapVisible = ref(false)
 const heatmapLoading = ref(false)
+const manualPrepareVisible = ref(false)
+const manualPrepareProgress = ref(0)
+const manualPrepareStage = ref('处理数据中')
+const manualPrepareMessage = ref('处理数据中')
+const manualPrepareTaskId = ref('')
+const manualPrepareSampleCount = ref(0)
+const manualPrepareEtaSeconds = ref<number | null>(null)
+let manualPreparePollTimer: number | null = null
 
 // ---- Ship SVG ----
 function getShipSVG(color: string, heading: number) {
@@ -154,9 +162,10 @@ function renderClickedTrack() {
 }
 
 function onMapMouseDownStartTrack(e: L.LeafletMouseEvent) {
+  if (!store.manualPredictMode) return
   if (isDrawing) return
   if (lockTrackDrawingForSimilarView) return
-  if (store.predictionResult) return
+  if (store.predictionResult || predictionLayer) return
   if (shouldIgnoreMapClick(e)) return
   if ((e.originalEvent as MouseEvent).button !== 0) return
 
@@ -582,6 +591,93 @@ function clearOtherOperationsForManualPrediction() {
   }
 }
 
+function stopManualPreparePolling() {
+  if (manualPreparePollTimer !== null) {
+    window.clearInterval(manualPreparePollTimer)
+    manualPreparePollTimer = null
+  }
+}
+
+function formatEta(seconds: number | null) {
+  if (seconds === null || seconds < 0) return '计算中'
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  if (minutes < 60) return `${minutes} 分 ${remainSeconds} 秒`
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return `${hours} 小时 ${remainMinutes} 分`
+}
+
+async function waitForPredictorAssetsTask(taskId: string) {
+  manualPrepareVisible.value = true
+  manualPrepareTaskId.value = taskId
+
+  return new Promise<void>((resolve, reject) => {
+    const poll = async () => {
+      try {
+        const task = await api.getPredictorAssetsPrepareTask(taskId)
+        manualPrepareStage.value = task.stage || 'processing_data'
+        manualPrepareProgress.value = task.progress
+        manualPrepareMessage.value = task.message || '处理数据中'
+        manualPrepareSampleCount.value = task.sample_count || 0
+        manualPrepareEtaSeconds.value = task.eta_seconds
+
+        if (task.status === 'completed') {
+          stopManualPreparePolling()
+          manualPrepareVisible.value = false
+          manualPrepareTaskId.value = ''
+          resolve()
+          return
+        }
+
+        if (task.status === 'failed') {
+          stopManualPreparePolling()
+          manualPrepareVisible.value = false
+          manualPrepareTaskId.value = ''
+          reject(new Error(task.error || '预测依赖文件处理失败'))
+        }
+      } catch (err) {
+        stopManualPreparePolling()
+        manualPrepareVisible.value = false
+        manualPrepareTaskId.value = ''
+        reject(err)
+      }
+    }
+
+    stopManualPreparePolling()
+    manualPreparePollTimer = window.setInterval(() => {
+      void poll()
+    }, 2000)
+    void poll()
+  })
+}
+
+async function ensureManualPredictorAssetsReady() {
+  manualPrepareProgress.value = 0
+  manualPrepareStage.value = 'processing_data'
+  manualPrepareMessage.value = '处理数据中'
+  manualPrepareSampleCount.value = 0
+  manualPrepareEtaSeconds.value = null
+
+  const start = await api.preparePredictorAssets()
+  if (start.ready) {
+    return true
+  }
+
+  if (!start.task_id) {
+    throw new Error('未获取到预测依赖处理任务 ID')
+  }
+
+  manualPrepareVisible.value = true
+  manualPrepareProgress.value = start.progress || 0
+  manualPrepareStage.value = start.stage || 'processing_data'
+  manualPrepareMessage.value = start.message || '处理数据中'
+  manualPrepareEtaSeconds.value = start.eta_seconds ?? null
+  await waitForPredictorAssetsTask(start.task_id)
+  return true
+}
+
 // ---- Distance Calculation ----
 async function calcDistance(mmsiA: number, mmsiB: number) {
   const ship1 = store.ships.find((s) => s.mmsi === mmsiA)
@@ -755,9 +851,16 @@ async function toggleManualPredictionMode() {
 
   if (!store.manualPredictMode) {
     clearOtherOperationsForManualPrediction()
+    try {
+      await ensureManualPredictorAssetsReady()
+    } catch (e: unknown) {
+      store.showToast(`预测依赖处理失败: ${e instanceof Error ? e.message : '未知错误'}`, 'error')
+      return
+    }
+
     lockTrackDrawingForSimilarView = false
     store.manualPredictMode = true
-    store.showToast('已清空其它操作，手绘模式已开启：先在地图上绘制轨迹，再次点击“手绘预测”开始预测', 'info')
+    store.showToast('处理完成，请绘制轨迹', 'success')
     return
   }
 
@@ -767,11 +870,11 @@ async function toggleManualPredictionMode() {
   }
 
   const manualPoints = [...clickedPoints]
+  store.manualPredictMode = false
   await store.fetchPredictionFromPoints(manualPoints, 60, 60)
   clearNonPredictionRenderings()
   drawPredictionFromStore()
   focusPredictionFromStore()
-  store.manualPredictMode = false
 }
 
 // ---- Stop Detection ----
@@ -1127,6 +1230,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopManualPreparePolling()
   map.off('mousedown', onMapMouseDownStartTrack)
   map.off('mousemove', onMapMouseMoveTrack)
   map.off('mouseup', onMapMouseUpEndTrack)
@@ -1230,6 +1334,30 @@ defineExpose({
 <template>
   <main class="flex-1 relative">
     <div ref="mapContainer" class="w-full h-full" style="background: #0a1628"></div>
+
+    <div
+      v-if="manualPrepareVisible"
+      class="absolute top-16 left-1/2 -translate-x-1/2 z-[1100] w-[360px] rounded-lg border border-slate-700/50 px-4 py-3"
+      style="background: rgba(17, 24, 39, 0.95)"
+    >
+      <div class="flex items-center justify-between text-[11px] text-slate-300 mb-2">
+        <span>{{ manualPrepareMessage }}</span>
+        <span class="font-mono text-ocean-300">{{ manualPrepareProgress }}%</span>
+      </div>
+      <div class="h-2 rounded bg-slate-700/50 overflow-hidden">
+        <div
+          class="h-full bg-ocean-500 transition-all duration-300"
+          :style="{ width: `${manualPrepareProgress}%` }"
+        ></div>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-400 flex items-center justify-between">
+        <span>阶段：{{ manualPrepareStage }}</span>
+        <span>预估剩余（仅供参考）：{{ formatEta(manualPrepareEtaSeconds) }}</span>
+      </div>
+      <div class="mt-1 text-[10px] text-slate-400 flex items-center justify-end">
+        <span v-if="manualPrepareSampleCount > 0">样本：{{ manualPrepareSampleCount }}</span>
+      </div>
+    </div>
 
     <!-- Map Overlay: Top info bar -->
     <div class="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3">

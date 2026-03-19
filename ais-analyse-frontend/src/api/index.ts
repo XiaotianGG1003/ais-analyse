@@ -117,6 +117,46 @@ export interface SimilarTracksResponseData {
   tracks: SimilarTrackItemData[]
 }
 
+export interface PredictorAssetsStatusData {
+  ready: boolean
+  sample_pkl_exists: boolean
+  index_pkl_exists: boolean
+  sample_pkl_path: string | null
+  index_pkl_path: string | null
+}
+
+export interface PredictorAssetsPrepareStartData {
+  ready: boolean
+  task_id?: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  stage: string
+  progress: number
+  message: string
+  eta_seconds?: number | null
+  sample_pkl_exists?: boolean
+  index_pkl_exists?: boolean
+  sample_pkl_path?: string | null
+  index_pkl_path?: string | null
+}
+
+export interface PredictorAssetsPrepareTaskData {
+  task_id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  stage: string
+  progress: number
+  message: string
+  eta_seconds: number | null
+  sample_count: number
+  ready: boolean
+  sample_pkl_exists: boolean
+  index_pkl_exists: boolean
+  sample_pkl_path: string | null
+  index_pkl_path: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
 /* ---- API Functions ---- */
 
 export function searchVessels(keyword: string, limit = 20) {
@@ -191,6 +231,21 @@ export function getSimilarTracksFromPoints(points: ManualTrackPoint[], topK = 5)
     method: 'POST',
     body: JSON.stringify({ points, top_k: topK }),
   })
+}
+
+export function getPredictorAssetsStatus() {
+  return request<PredictorAssetsStatusData>('/analysis/predictor-assets/status')
+}
+
+export function preparePredictorAssets() {
+  return request<PredictorAssetsPrepareStartData>('/analysis/predictor-assets/prepare', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function getPredictorAssetsPrepareTask(taskId: string) {
+  return request<PredictorAssetsPrepareTaskData>(`/analysis/predictor-assets/tasks/${encodeURIComponent(taskId)}`)
 }
 
 /* ---- Data Import ---- */

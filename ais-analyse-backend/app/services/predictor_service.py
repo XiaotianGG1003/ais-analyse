@@ -4,6 +4,7 @@ import importlib
 import os
 import pickle
 import sys
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from app.config import get_settings
 from app.models.analysis import (
     ManualTrackPoint,
     PredictionResponse,
@@ -91,6 +93,127 @@ _runtime: _PredictorRuntime | None = None
 _OBS_INTERVAL_SECONDS = 30
 _PRED_INTERVAL_SECONDS = 30
 _MANUAL_PREDICT_POINT_COUNT = 120
+
+
+def _parse_conn_params_from_settings() -> dict[str, Any]:
+    settings = get_settings()
+    url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    parsed = urlparse(url)
+    return {
+        "host": parsed.hostname,
+        "port": parsed.port or 5432,
+        "dbname": parsed.path.lstrip("/"),
+        "user": parsed.username,
+        "password": parsed.password or "",
+    }
+
+
+def _default_samples_output_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "data" / "samples" / "global_traj_id.pkl"
+
+
+def get_predictor_assets_status() -> dict[str, Any]:
+    predictor_dir = _ensure_predictor_import_path()
+    sample_path = _resolve_samples_path(predictor_dir)
+    index_path = predictor_dir / "data" / "samples" / "traj_index_v3.pkl"
+
+    sample_exists = sample_path is not None and sample_path.exists()
+    index_exists = index_path.exists()
+
+    return {
+        "ready": bool(sample_exists),
+        "sample_pkl_exists": bool(sample_exists),
+        "index_pkl_exists": bool(index_exists),
+        "sample_pkl_path": str(sample_path) if sample_path else None,
+        "index_pkl_path": str(index_path),
+    }
+
+
+def prepare_predictor_assets(progress_callback=None) -> dict[str, Any]:
+    _ensure_predictor_import_path()
+    status = get_predictor_assets_status()
+    if status["ready"]:
+        if progress_callback:
+            progress_callback(
+                {
+                    "stage": "ready",
+                    "progress": 100,
+                    "message": "预测依赖文件已就绪",
+                }
+            )
+        return {
+            **status,
+            "sample_count": 0,
+        }
+
+    sample_count = 0
+
+    if not status["sample_pkl_exists"]:
+        if progress_callback:
+            progress_callback(
+                {
+                    "stage": "processing_data",
+                    "progress": 3,
+                    "message": "处理数据中",
+                }
+            )
+
+        try:
+            from app.services.data_process import generate_samples_pkl_from_ais_raw  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError(
+                f"data_process 模块加载失败，请确认已安装 psycopg2、scipy、pandas：{exc}"
+            ) from exc
+
+        conn_params = _parse_conn_params_from_settings()
+        out_pkl = _default_samples_output_path()
+        out_pkl.parent.mkdir(parents=True, exist_ok=True)
+
+        def _on_pkl_progress(payload: dict[str, Any]):
+            nonlocal sample_count
+            processed = int(payload.get("processed_vessels", 0))
+            total = int(payload.get("total_vessels", 0))
+            sample_count = int(payload.get("sample_count", sample_count))
+            ratio = (processed / total) if total > 0 else 0.0
+            progress = 3 + int(min(max(ratio, 0.0), 1.0) * 82)
+            if progress_callback:
+                progress_callback(
+                    {
+                        "stage": "processing_data",
+                        "progress": min(progress, 85),
+                        "message": "处理数据中",
+                        "sample_count": sample_count,
+                        "processed_vessels": processed,
+                        "total_vessels": total,
+                    }
+                )
+
+        result = generate_samples_pkl_from_ais_raw(
+            out_pkl=str(out_pkl),
+            conn_params=conn_params,
+            table="ais_raw",
+            progress_callback=_on_pkl_progress,
+        )
+        sample_count = int(result.get("sample_count", sample_count))
+
+    global _runtime
+    _runtime = None
+
+    final_status = get_predictor_assets_status()
+    if progress_callback:
+        progress_callback(
+            {
+                "stage": "completed",
+                "progress": 100,
+                "message": "预测依赖文件准备完成",
+                "sample_count": sample_count,
+            }
+        )
+
+    return {
+        **final_status,
+        "sample_count": sample_count,
+    }
 
 
 def _extract_global_traj_id(sample: dict[str, Any], fallback: int) -> int:

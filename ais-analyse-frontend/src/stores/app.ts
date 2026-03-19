@@ -11,6 +11,8 @@ const PALETTE = [
   '#06B6D4', '#F97316', '#14B8A6', '#6366F1', '#EF4444',
 ]
 
+const MANUAL_TRAJECTORY_DEFAULT_POINTS = 120
+
 function resampleManualPoints(points: ManualTrackPoint[], targetLen: number): ManualTrackPoint[] {
   if (targetLen < 2) return [...points]
   if (points.length < 2) return [...points]
@@ -411,7 +413,7 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    const fixedPoints = resampleManualPoints(points, 120)
+    const fixedPoints = resampleManualPoints(points, MANUAL_TRAJECTORY_DEFAULT_POINTS)
     showToast(`正在基于 ${fixedPoints.length} 个手绘点生成轨迹预测…`, 'info')
     try {
       const res = await api.predictTrajectoryFromPoints(fixedPoints, durationMinutes, stepSeconds)
@@ -439,7 +441,7 @@ export const useAppStore = defineStore('app', () => {
       return []
     }
 
-    const fixedPoints = resampleManualPoints(points, 120)
+    const fixedPoints = resampleManualPoints(points, MANUAL_TRAJECTORY_DEFAULT_POINTS)
     const start = fixedPoints[0]
     const end = fixedPoints[fixedPoints.length - 1]
     similarQueryInfo.value = {
