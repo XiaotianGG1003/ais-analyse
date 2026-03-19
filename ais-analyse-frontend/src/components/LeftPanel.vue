@@ -17,6 +17,12 @@ const animationStep = ref(60)  // seconds
 const cpaPanelOpen = ref(false)
 const cpaShipA = ref<number | null>(null)
 const cpaShipB = ref<number | null>(null)
+const densityPanelOpen = ref(false)
+const densityGridSize = ref(0.01)
+const densityMinVessels = ref(5)
+const densityTimeRange = ref<'all' | 'custom'>('all')
+const densityCustomStart = ref('')
+const densityCustomEnd = ref('')
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -174,6 +180,27 @@ async function onAnalyzeCPA() {
     return
   }
   await store.fetchCPA(cpaShipA.value, cpaShipB.value)
+}
+
+function onToggleDensity() {
+  densityPanelOpen.value = !densityPanelOpen.value
+}
+
+async function onAnalyzeDensity(type: 'heatmap' | 'corridors' | 'speed') {
+  let startTime: string | undefined
+  let endTime: string | undefined
+  
+  if (densityTimeRange.value === 'custom' && densityCustomStart.value && densityCustomEnd.value) {
+    startTime = new Date(densityCustomStart.value).toISOString()
+    endTime = new Date(densityCustomEnd.value).toISOString()
+  }
+  
+  await store.fetchDensityAnalysis(type, {
+    startTime,
+    endTime,
+    gridSize: densityGridSize.value,
+    minVessels: densityMinVessels.value,
+  })
 }
 
 function onCalcDist() {
@@ -553,6 +580,18 @@ onBeforeUnmount(() => {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           最近接近点
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleDensity"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+          轨迹密度
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
@@ -965,6 +1004,109 @@ onBeforeUnmount(() => {
           @click="onAnalyzeCPA"
         >
           分析最近接近点
+        </button>
+      </div>
+    </div>
+
+    <!-- Density Analysis Panel -->
+    <div v-if="densityPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">轨迹时空密度分析</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="densityPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <!-- 时间范围选择 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">时间范围</span>
+          <select
+            v-model="densityTimeRange"
+            class="w-full text-xs py-1.5 rounded-md border border-slate-700 outline-none focus:border-ocean-500 mb-2"
+            style="background: #1a2332; color: #e2e8f0"
+          >
+            <option value="all">全部时间</option>
+            <option value="custom">自定义范围</option>
+          </select>
+          <div v-if="densityTimeRange === 'custom'" class="space-y-2">
+            <input
+              v-model="densityCustomStart"
+              type="datetime-local"
+              class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+              style="background: #1a2332; color: #e2e8f0"
+            />
+            <input
+              v-model="densityCustomEnd"
+              type="datetime-local"
+              class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+              style="background: #1a2332; color: #e2e8f0"
+            />
+          </div>
+        </div>
+        
+        <!-- 网格大小 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">空间网格大小 (度)</span>
+          <input
+            v-model.number="densityGridSize"
+            type="number"
+            step="0.001"
+            min="0.001"
+            max="0.1"
+            class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          />
+          <span class="text-[10px] text-slate-600">{{ (densityGridSize * 111).toFixed(1) }} km</span>
+        </div>
+        
+        <!-- 最小船舶数 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">航道最小船舶数</span>
+          <input
+            v-model.number="densityMinVessels"
+            type="number"
+            min="1"
+            max="50"
+            class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+          />
+        </div>
+        
+        <!-- 分析按钮组 -->
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            class="py-1.5 text-[10px] font-medium text-white rounded-md"
+            style="background: linear-gradient(135deg, #0ea5e9, #0284c7)"
+            @click="onAnalyzeDensity('heatmap')"
+          >
+            热力图
+          </button>
+          <button
+            class="py-1.5 text-[10px] font-medium text-white rounded-md"
+            style="background: linear-gradient(135deg, #8b5cf6, #7c3aed)"
+            @click="onAnalyzeDensity('corridors')"
+          >
+            航道
+          </button>
+          <button
+            class="py-1.5 text-[10px] font-medium text-white rounded-md"
+            style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            @click="onAnalyzeDensity('speed')"
+          >
+            速度
+          </button>
+        </div>
+        
+        <!-- 清除按钮 -->
+        <button
+          v-if="store.densityResult"
+          class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
+          @click="store.clearDensityResult()"
+        >
+          清除分析结果
         </button>
       </div>
     </div>

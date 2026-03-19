@@ -24,6 +24,7 @@ let animationLayer: L.LayerGroup | null = null
 let animationShipMarker: L.Marker | null = null
 let animationTrailLayer: L.Polyline | null = null
 let cpaLayer: L.LayerGroup | null = null
+let densityLayer: L.LayerGroup | null = null
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
@@ -1124,6 +1125,114 @@ function clearCPA() {
   }
 }
 
+// ---- Density Analysis Visualization ----
+function renderDensity() {
+  if (!store.densityResult) return
+  clearDensity()
+  
+  const { type, data } = store.densityResult
+  densityLayer = L.layerGroup()
+  
+  if (type === 'heatmap') {
+    // Render heatmap cells
+    data.heatmap.forEach((cell: any) => {
+      const intensity = cell.intensity
+      const color = intensity > 0.7 ? '#ef4444' : intensity > 0.4 ? '#f59e0b' : '#3b82f6'
+      
+      const rect = L.rectangle(
+        [
+          [cell.lat - data.grid_size / 2, cell.lon - data.grid_size / 2],
+          [cell.lat + data.grid_size / 2, cell.lon + data.grid_size / 2],
+        ],
+        {
+          fillColor: color,
+          fillOpacity: intensity * 0.6,
+          color: color,
+          weight: 1,
+          opacity: 0.3,
+        }
+      ).addTo(densityLayer!)
+      
+      rect.bindTooltip(
+        `<div style="font-size:11px;">
+          <div style="font-weight:600;">轨迹点: ${cell.point_count}</div>
+          <div>船舶数: ${cell.vessel_count}</div>
+          <div>时间: ${new Date(cell.time_bucket).toLocaleString()}</div>
+        </div>`,
+        { direction: 'top', className: 'density-tooltip' }
+      )
+    })
+  } else if (type === 'corridors') {
+    // Render busy corridors
+    data.corridors.forEach((corridor: any) => {
+      const intensity = corridor.intensity
+      const width = 2 + intensity * 8  // 2-10px width
+      const color = intensity > 0.7 ? '#dc2626' : intensity > 0.4 ? '#ea580c' : '#0891b2'
+      
+      const line = L.polyline(
+        [
+          [corridor.start.lat, corridor.start.lon],
+          [corridor.end.lat, corridor.end.lon],
+        ],
+        {
+          color,
+          weight: width,
+          opacity: 0.7,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }
+      ).addTo(densityLayer!)
+      
+      line.bindTooltip(
+        `<div style="font-size:11px;">
+          <div style="font-weight:600;">繁忙航道</div>
+          <div>通行次数: ${corridor.passage_count}</div>
+          <div>船舶数: ${corridor.unique_vessels}</div>
+          <div>平均航速: ${corridor.avg_speed_knots} kn</div>
+        </div>`,
+        { direction: 'top', className: 'corridor-tooltip' }
+      )
+    })
+  } else if (type === 'speed') {
+    // Render speed analysis
+    data.speed_data.forEach((cell: any) => {
+      const speed = cell.avg_speed_knots
+      // Color scale: slow (blue) -> fast (red)
+      const color = speed > 20 ? '#dc2626' : 
+                    speed > 15 ? '#ea580c' :
+                    speed > 10 ? '#f59e0b' :
+                    speed > 5 ? '#84cc16' : '#3b82f6'
+      
+      const circle = L.circleMarker([cell.lat, cell.lon], {
+        radius: 6 + Math.min(cell.vessel_count / 5, 8),
+        fillColor: color,
+        color: '#fff',
+        weight: 1,
+        opacity: 0.8,
+        fillOpacity: 0.6,
+      }).addTo(densityLayer!)
+      
+      circle.bindTooltip(
+        `<div style="font-size:11px;">
+          <div style="font-weight:600;">平均速度: ${cell.avg_speed_knots} kn</div>
+          <div>船舶数: ${cell.vessel_count}</div>
+          <div>方差: ${cell.speed_variance}</div>
+        </div>`,
+        { direction: 'top', className: 'speed-tooltip' }
+      )
+    })
+  }
+  
+  densityLayer.addTo(map)
+}
+
+function clearDensity() {
+  if (densityLayer) {
+    map.removeLayer(densityLayer)
+    densityLayer = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
@@ -1131,6 +1240,7 @@ watch(
     clearStopPoints()
     clearAnimation()
     clearCPA()
+    clearDensity()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -1209,6 +1319,18 @@ watch(
       renderCPA()
     } else {
       clearCPA()
+    }
+  },
+)
+
+// Watch Density Analysis result
+watch(
+  () => store.densityResult,
+  (result) => {
+    if (result) {
+      renderDensity()
+    } else {
+      clearDensity()
     }
   },
 )

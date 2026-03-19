@@ -161,6 +161,12 @@ export const useAppStore = defineStore('app', () => {
     shortestLine: { a: { lon: number; lat: number }; b: { lon: number; lat: number } }
   } | null>(null)
 
+  // Density Analysis
+  const densityResult = ref<{
+    type: 'heatmap' | 'corridors' | 'speed'
+    data: any
+  } | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -561,6 +567,34 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 轨迹密度分析 */
+  async function fetchDensityAnalysis(
+    type: 'heatmap' | 'corridors' | 'speed',
+    params: { startTime?: string; endTime?: string; gridSize?: number; minVessels?: number },
+  ) {
+    const typeNames = { heatmap: '热力图', corridors: '航道分析', speed: '速度分析' }
+    showToast(`正在生成${typeNames[type]}…`, 'info')
+    try {
+      let res
+      if (type === 'heatmap') {
+        res = await api.getDensityHeatmap(params.startTime, params.endTime, params.gridSize)
+      } else if (type === 'corridors') {
+        res = await api.getBusyCorridors(params.startTime, params.endTime, params.minVessels, params.gridSize)
+      } else {
+        res = await api.getSpeedAnalysis(params.startTime, params.endTime, params.gridSize)
+      }
+      densityResult.value = { type, data: res }
+      activeRightTab.value = 'analysis'
+      showToast(`${typeNames[type]}生成完成`, 'success')
+    } catch (e: unknown) {
+      showToast(`${typeNames[type]}生成失败: ` + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function clearDensityResult() {
+    densityResult.value = null
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -781,6 +815,7 @@ export const useAppStore = defineStore('app', () => {
     stopDetectionResult,
     animationData,
     cpaResult,
+    densityResult,
     heatmapVisible,
     toasts,
     showToast,
@@ -801,6 +836,8 @@ export const useAppStore = defineStore('app', () => {
     stopAnimation,
     setAnimationFrame,
     fetchCPA,
+    fetchDensityAnalysis,
+    clearDensityResult,
     toggleLeftPanel,
     toggleRightPanel,
   }

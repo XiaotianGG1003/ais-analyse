@@ -469,3 +469,108 @@ export function getAnimationFrames(
 export function getTrajectoryTimeRange(mmsi: number) {
   return request<TrajectoryTimeRange>(`/animation/${mmsi}/range`)
 }
+
+
+/* ---- Trajectory Density Analysis ---- */
+
+export interface HeatmapCell {
+  lon: number
+  lat: number
+  time_bucket: string
+  point_count: number
+  vessel_count: number
+  intensity: number
+}
+
+export interface DensityHeatmapData {
+  grid_size: number
+  time_interval: string
+  total_cells: number
+  heatmap: HeatmapCell[]
+}
+
+export interface CorridorData {
+  start: { lon: number; lat: number }
+  end: { lon: number; lat: number }
+  passage_count: number
+  unique_vessels: number
+  avg_speed_knots: number
+  direction: number | null
+  intensity: number
+}
+
+export interface BusyCorridorsData {
+  total_corridors: number
+  min_vessels_threshold: number
+  corridors: CorridorData[]
+}
+
+export interface SpeedCellData {
+  lon: number
+  lat: number
+  avg_speed_knots: number
+  avg_sog_knots: number
+  vessel_count: number
+  speed_variance: number
+}
+
+export interface SpeedAnalysisData {
+  total_cells: number
+  speed_data: SpeedCellData[]
+}
+
+export interface TimeDistributionItem {
+  time_slot: string
+  point_count: number
+  vessel_count: number
+}
+
+export interface TimeDistributionData {
+  time_bucket: string
+  total_slots: number
+  distribution: TimeDistributionItem[]
+}
+
+export function getDensityHeatmap(
+  startTime?: string,
+  endTime?: string,
+  gridSize = 0.01,
+  timeInterval = '1 hour',
+) {
+  let url = `/density/heatmap?grid_size=${gridSize}&time_interval=${encodeURIComponent(timeInterval)}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<DensityHeatmapData>(url)
+}
+
+export function getBusyCorridors(
+  startTime?: string,
+  endTime?: string,
+  minVessels = 5,
+  gridSize = 0.005,
+) {
+  let url = `/density/corridors?min_vessels=${minVessels}&grid_size=${gridSize}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<BusyCorridorsData>(url)
+}
+
+export function getSpeedAnalysis(
+  startTime?: string,
+  endTime?: string,
+  gridSize = 0.01,
+) {
+  let url = `/density/speed-analysis?grid_size=${gridSize}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<SpeedAnalysisData>(url)
+}
+
+export function getTimeDistribution(
+  mmsi?: number,
+  timeBucket = '1 hour',
+) {
+  let url = `/density/time-distribution?time_bucket=${encodeURIComponent(timeBucket)}`
+  if (mmsi) url += `&mmsi=${mmsi}`
+  return request<TimeDistributionData>(url)
+}
