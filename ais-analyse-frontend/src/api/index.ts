@@ -652,3 +652,63 @@ export function getPortAnalysis(portId: number, startTime: string, endTime: stri
     `/ports/${portId}/analysis?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&top_n=${topN}`,
   )
 }
+
+
+/* ---- Trajectory Simplification ---- */
+
+export interface SimplifiedPoint {
+  lon: number
+  lat: number
+  timestamp: string
+}
+
+export interface TrajectorySimplifyResponse {
+  mmsi: number
+  vessel_name: string
+  tolerance_m: number
+  original_points: number
+  simplified_points: number
+  compression_rate: number
+  time_range: {
+    start: string
+    end: string
+  }
+  bounds: {
+    min_lon: number
+    min_lat: number
+    max_lon: number
+    max_lat: number
+  }
+  original_path: SimplifiedPoint[]
+  simplified_path: SimplifiedPoint[]
+}
+
+export interface SimplificationComparison {
+  tolerance_m: number
+  simplified_points: number
+  compression_rate: number
+}
+
+export interface TrajectorySimplifyComparisonResponse {
+  mmsi: number
+  original_points: number
+  comparisons: SimplificationComparison[]
+}
+
+export function simplifyTrajectory(
+  mmsi: number,
+  tolerance = 100,
+  startTime?: string,
+  endTime?: string,
+) {
+  let url = `/simplify/${mmsi}?tolerance=${tolerance}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<TrajectorySimplifyResponse>(url)
+}
+
+export function compareSimplification(mmsi: number, tolerances = '50,100,200,500') {
+  return request<TrajectorySimplifyComparisonResponse>(
+    `/simplify/${mmsi}/comparison?tolerances=${encodeURIComponent(tolerances)}`,
+  )
+}

@@ -23,6 +23,8 @@ const densityMinVessels = ref(5)
 const densityTimeRange = ref<'all' | 'custom'>('all')
 const densityCustomStart = ref('')
 const densityCustomEnd = ref('')
+const simplifyPanelOpen = ref(false)
+const simplifyTolerance = ref(100)
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -235,6 +237,30 @@ async function onAnalyzeDensity(type: 'heatmap' | 'corridors' | 'speed') {
     gridSize: densityGridSize.value,
     minVessels: densityMinVessels.value,
   })
+}
+
+function onToggleSimplify() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  simplifyPanelOpen.value = !simplifyPanelOpen.value
+}
+
+async function onSimplifyTrajectory() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  await store.fetchSimplifiedTrajectory(store.selectedShip.mmsi, simplifyTolerance.value)
+}
+
+async function onCompareSimplification() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  await store.fetchSimplificationComparison(store.selectedShip.mmsi)
 }
 
 function onCalcDist() {
@@ -627,6 +653,16 @@ onBeforeUnmount(() => {
             <rect x="3" y="14" width="7" height="7" />
           </svg>
           轨迹密度
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleSimplify"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <polyline points="4 14 10 14 12 8 16 16 20 10 22 12" />
+            <path d="M2 20h20" />
+          </svg>
+          轨迹压缩
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
@@ -1214,6 +1250,101 @@ onBeforeUnmount(() => {
           @click="store.clearDensityResult()"
         >
           清除分析结果
+        </button>
+      </div>
+    </div>
+
+    <!-- Trajectory Simplification Panel -->
+    <div v-if="simplifyPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">轨迹压缩简化 (Douglas-Peucker)</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="simplifyPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <!-- 当前选中船舶 -->
+        <div v-if="store.selectedShip" class="text-xs text-slate-400">
+          <span class="text-slate-500">船舶:</span> {{ store.selectedShip.vessel_name }} ({{ store.selectedShip.mmsi }})
+        </div>
+        <div v-else class="text-xs text-rose-400">
+          请先选择一艘船舶
+        </div>
+        
+        <!-- 容差设置 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">简化容差 (米)</span>
+          <input
+            v-model.number="simplifyTolerance"
+            type="range"
+            min="10"
+            max="1000"
+            step="10"
+            class="w-full mb-1"
+          />
+          <div class="flex justify-between text-[10px] text-slate-600">
+            <span>10m (高精度)</span>
+            <span class="text-ocean-400 font-medium">{{ simplifyTolerance }}m</span>
+            <span>1000m (高压缩)</span>
+          </div>
+        </div>
+        
+        <!-- 操作按钮组 -->
+        <div class="space-y-2">
+          <button
+            class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+            style="background: linear-gradient(135deg, #10b981, #059669)"
+            :disabled="!store.selectedShip"
+            @click="onSimplifyTrajectory"
+          >
+            压缩轨迹
+          </button>
+          <button
+            class="w-full py-1.5 text-xs font-medium text-slate-300 border border-slate-700 rounded-md hover:bg-navy-600"
+            :disabled="!store.selectedShip"
+            @click="onCompareSimplification"
+          >
+            对比不同容差效果
+          </button>
+        </div>
+        
+        <!-- 结果显示 -->
+        <div v-if="store.simplifyResult" class="mt-3 p-2 bg-navy-600/50 rounded-md space-y-1">
+          <div class="text-xs text-slate-300">
+            <span class="text-slate-500">原始点数:</span> {{ store.simplifyResult.original_points }}
+          </div>
+          <div class="text-xs text-slate-300">
+            <span class="text-slate-500">简化后点数:</span> {{ store.simplifyResult.simplified_points }}
+          </div>
+          <div class="text-xs font-medium" :class="store.simplifyResult.compression_rate > 50 ? 'text-emerald-400' : 'text-ocean-400'">
+            压缩率: {{ store.simplifyResult.compression_rate }}%
+          </div>
+        </div>
+        
+        <!-- 对比结果 -->
+        <div v-if="store.simplifyComparison" class="mt-3 space-y-1">
+          <div class="text-[10px] text-slate-500 font-medium">不同容差对比:</div>
+          <div
+            v-for="item in store.simplifyComparison.comparisons"
+            :key="item.tolerance_m"
+            class="flex justify-between text-xs py-1 px-2 bg-navy-600/30 rounded"
+          >
+            <span class="text-slate-400">{{ item.tolerance_m }}m</span>
+            <span class="text-slate-300">{{ item.simplified_points }}点</span>
+            <span class="text-emerald-400">{{ item.compression_rate }}%</span>
+          </div>
+        </div>
+        
+        <!-- 清除按钮 -->
+        <button
+          v-if="store.simplifyResult || store.simplifyComparison"
+          class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
+          @click="store.clearSimplifyResult()"
+        >
+          清除结果
         </button>
       </div>
     </div>

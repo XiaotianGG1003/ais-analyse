@@ -173,6 +173,24 @@ export const useAppStore = defineStore('app', () => {
   const selectedPortId = ref<number | null>(null)
   const portAnalysisResult = ref<PortAnalysisResponse | null>(null)
 
+  // Trajectory Simplification
+  const simplifyResult = ref<{
+    mmsi: number
+    vessel_name: string
+    tolerance_m: number
+    original_points: number
+    simplified_points: number
+    compression_rate: number
+    original_path: { lon: number; lat: number; timestamp: string }[]
+    simplified_path: { lon: number; lat: number; timestamp: string }[]
+  } | null>(null)
+  
+  const simplifyComparison = ref<{
+    mmsi: number
+    original_points: number
+    comparisons: { tolerance_m: number; simplified_points: number; compression_rate: number }[]
+  } | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -669,6 +687,60 @@ export const useAppStore = defineStore('app', () => {
     densityResult.value = null
   }
 
+  /** 轨迹简化压缩 */
+  async function fetchSimplifiedTrajectory(mmsi: number, tolerance: number) {
+    const ship = ships.value.find((s) => s.mmsi === mmsi)
+    if (!ship) {
+      showToast('请选择有效的船舶', 'warning')
+      return
+    }
+    showToast(`正在压缩 ${ship.vessel_name} 的轨迹 (容差: ${tolerance}m)…`, 'info')
+    try {
+      const res = await api.simplifyTrajectory(mmsi, tolerance)
+      simplifyResult.value = {
+        mmsi: res.mmsi,
+        vessel_name: res.vessel_name,
+        tolerance_m: res.tolerance_m,
+        original_points: res.original_points,
+        simplified_points: res.simplified_points,
+        compression_rate: res.compression_rate,
+        original_path: res.original_path,
+        simplified_path: res.simplified_path,
+      }
+      simplifyComparison.value = null
+      activeRightTab.value = 'analysis'
+      showToast(`轨迹压缩完成: ${res.compression_rate}% 压缩率`, 'success')
+    } catch (e: unknown) {
+      showToast('轨迹压缩失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  async function fetchSimplificationComparison(mmsi: number) {
+    const ship = ships.value.find((s) => s.mmsi === mmsi)
+    if (!ship) {
+      showToast('请选择有效的船舶', 'warning')
+      return
+    }
+    showToast(`正在对比 ${ship.vessel_name} 的不同容差简化效果…`, 'info')
+    try {
+      const res = await api.compareSimplification(mmsi)
+      simplifyComparison.value = {
+        mmsi: res.mmsi,
+        original_points: res.original_points,
+        comparisons: res.comparisons,
+      }
+      activeRightTab.value = 'analysis'
+      showToast('容差对比完成', 'success')
+    } catch (e: unknown) {
+      showToast('容差对比失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function clearSimplifyResult() {
+    simplifyResult.value = null
+    simplifyComparison.value = null
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -890,6 +962,8 @@ export const useAppStore = defineStore('app', () => {
     animationData,
     cpaResult,
     densityResult,
+    simplifyResult,
+    simplifyComparison,
     ports,
     selectedPortId,
     selectedPort,
@@ -916,6 +990,9 @@ export const useAppStore = defineStore('app', () => {
     fetchCPA,
     fetchDensityAnalysis,
     clearDensityResult,
+    fetchSimplifiedTrajectory,
+    fetchSimplificationComparison,
+    clearSimplifyResult,
     fetchPorts,
     selectPort,
     createPortByBBox,

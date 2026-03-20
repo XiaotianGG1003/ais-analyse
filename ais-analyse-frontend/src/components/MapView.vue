@@ -26,6 +26,7 @@ let animationTrailLayer: L.Polyline | null = null
 let cpaLayer: L.LayerGroup | null = null
 let densityLayer: L.LayerGroup | null = null
 let portsLayer: L.LayerGroup | null = null
+let simplifyLayer: L.LayerGroup | null = null
 let creatingPort = false
 let createPortName = ''
 let drawnItems: L.FeatureGroup
@@ -1338,6 +1339,87 @@ function clearDensity() {
   }
 }
 
+// ---- Trajectory Simplification Visualization ----
+function renderSimplifiedTrajectory() {
+  if (!store.simplifyResult) return
+  clearSimplifiedTrajectory()
+  
+  const result = store.simplifyResult
+  simplifyLayer = L.layerGroup()
+  
+  // 原始轨迹（蓝色，半透明）
+  if (result.original_path.length > 0) {
+    const originalCoords = result.original_path.map((p) => [p.lat, p.lon])
+    L.polyline(originalCoords, {
+      color: '#3b82f6',
+      weight: 2,
+      opacity: 0.4,
+      dashArray: '5, 5',
+    }).addTo(simplifyLayer!)
+    
+    // 原始点（小蓝点）
+    result.original_path.forEach((p) => {
+      L.circleMarker([p.lat, p.lon], {
+        radius: 2,
+        fillColor: '#3b82f6',
+        color: '#3b82f6',
+        weight: 1,
+        opacity: 0.3,
+        fillOpacity: 0.3,
+      }).addTo(simplifyLayer!)
+    })
+  }
+  
+  // 简化后轨迹（绿色，粗线）
+  if (result.simplified_path.length > 0) {
+    const simplifiedCoords = result.simplified_path.map((p) => [p.lat, p.lon])
+    L.polyline(simplifiedCoords, {
+      color: '#10b981',
+      weight: 4,
+      opacity: 0.9,
+    }).addTo(simplifyLayer!)
+    
+    // 简化后点（绿色大点）
+    result.simplified_path.forEach((p, idx) => {
+      const isFirstOrLast = idx === 0 || idx === result.simplified_path.length - 1
+      L.circleMarker([p.lat, p.lon], {
+        radius: isFirstOrLast ? 6 : 4,
+        fillColor: '#10b981',
+        color: '#fff',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.9,
+      }).addTo(simplifyLayer!).bindTooltip(
+        `<div style="font-size:10px;">
+          <div>点 ${idx + 1}/${result.simplified_path.length}</div>
+          <div>${new Date(p.timestamp).toLocaleString()}</div>
+        </div>`,
+        { direction: 'top' }
+      )
+    })
+  }
+  
+  simplifyLayer.addTo(map)
+  
+  // 适应边界
+  if (result.simplified_path.length > 0 || result.original_path.length > 0) {
+    const allPoints = [
+      ...result.original_path.map((p) => [p.lat, p.lon]),
+      ...result.simplified_path.map((p) => [p.lat, p.lon]),
+    ]
+    if (allPoints.length > 0) {
+      map.fitBounds(allPoints as [number, number][], { padding: [50, 50] })
+    }
+  }
+}
+
+function clearSimplifiedTrajectory() {
+  if (simplifyLayer) {
+    map.removeLayer(simplifyLayer)
+    simplifyLayer = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
@@ -1346,6 +1428,7 @@ watch(
     clearAnimation()
     clearCPA()
     clearDensity()
+    clearSimplifiedTrajectory()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -1436,6 +1519,18 @@ watch(
       renderDensity()
     } else {
       clearDensity()
+    }
+  },
+)
+
+// Watch Simplification result
+watch(
+  () => store.simplifyResult,
+  (result) => {
+    if (result) {
+      renderSimplifiedTrajectory()
+    } else {
+      clearSimplifiedTrajectory()
     }
   },
 )
