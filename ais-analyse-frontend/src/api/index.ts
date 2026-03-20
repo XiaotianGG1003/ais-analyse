@@ -712,3 +712,83 @@ export function compareSimplification(mmsi: number, tolerances = '50,100,200,500
     `/simplify/${mmsi}/comparison?tolerances=${encodeURIComponent(tolerances)}`,
   )
 }
+
+
+/* ---- Companion Pattern Detection ---- */
+
+export interface CompanionSegment {
+  start_time: string
+  end_time: string
+  duration_minutes: number
+  point_count: number
+  avg_distance_nm: number
+  min_distance_nm: number
+  max_distance_nm: number
+  path: {
+    timestamp: string
+    vessel_a: { lon: number; lat: number; speed: number }
+    vessel_b: { lon: number; lat: number; speed: number }
+    distance_nm: number
+  }[]
+}
+
+export interface CompanionPair {
+  mmsi_a: number
+  vessel_name_a: string
+  mmsi_b: number
+  vessel_name_b: string
+  is_companion: boolean
+  companion_score: number
+  total_duration_minutes: number
+  total_companion_points: number
+  segment_count: number
+  segments: CompanionSegment[]
+}
+
+export interface CompanionGroup {
+  group_size: number
+  vessels: { mmsi: number; vessel_name: string }[]
+  total_companion_pairs: number
+}
+
+export interface CompanionDetectionResponse {
+  query_params: {
+    start_time: string
+    end_time: string
+    max_distance_nm: number
+    min_duration_minutes: number
+  }
+  total_vessels_analyzed: number
+  total_pairs_detected: number
+  companion_pairs: CompanionPair[]
+  companion_groups: CompanionGroup[]
+}
+
+export interface VesselCompanionsResponse {
+  mmsi: number
+  total_companions: number
+  companion_pairs: CompanionPair[]
+}
+
+export function detectCompanions(
+  startTime: string,
+  endTime: string,
+  maxDistanceNm = 2.0,
+  minDurationMinutes = 30,
+  maxVessels = 500,
+) {
+  let url = `/companions/detect?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`
+  url += `&max_distance_nm=${maxDistanceNm}&min_duration_minutes=${minDurationMinutes}&max_vessels=${maxVessels}`
+  return request<CompanionDetectionResponse>(url)
+}
+
+export function getVesselCompanions(
+  mmsi: number,
+  startTime: string,
+  endTime: string,
+  maxDistanceNm = 2.0,
+) {
+  let url = `/companions/${mmsi}/companions?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`
+  url += `&max_distance_nm=${maxDistanceNm}`
+  return request<VesselCompanionsResponse>(url)
+}

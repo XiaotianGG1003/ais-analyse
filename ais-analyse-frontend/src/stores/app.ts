@@ -5,6 +5,7 @@ import { MOCK_SHIPS } from '@/data/mockData'
 import * as api from '@/api'
 import type { ManualTrackPoint, SimilarTrackItemData } from '@/api'
 import type { PortAnalysisResponse, PortItem } from '@/api'
+import type { CompanionPair, CompanionGroup } from '@/api'
 
 // 固定调色板，给从后端加载的船舶分配颜色
 const PALETTE = [
@@ -190,6 +191,22 @@ export const useAppStore = defineStore('app', () => {
     original_points: number
     comparisons: { tolerance_m: number; simplified_points: number; compression_rate: number }[]
   } | null>(null)
+
+  // Companion Pattern Detection
+  const companionResult = ref<{
+    query_params: {
+      start_time: string
+      end_time: string
+      max_distance_nm: number
+      min_duration_minutes: number
+    }
+    total_vessels_analyzed: number
+    total_pairs_detected: number
+    companion_pairs: CompanionPair[]
+    companion_groups: CompanionGroup[]
+  } | null>(null)
+  
+  const selectedCompanionPair = ref<CompanionPair | null>(null)
 
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
@@ -741,6 +758,45 @@ export const useAppStore = defineStore('app', () => {
     simplifyComparison.value = null
   }
 
+  /** 伴随模式检测 */
+  async function detectCompanions(params: {
+    startTime: string
+    endTime: string
+    maxDistanceNm: number
+    minDurationMinutes: number
+  }) {
+    showToast('正在检测伴随模式…', 'info')
+    try {
+      const res = await api.detectCompanions(
+        params.startTime,
+        params.endTime,
+        params.maxDistanceNm,
+        params.minDurationMinutes,
+      )
+      companionResult.value = {
+        query_params: res.query_params,
+        total_vessels_analyzed: res.total_vessels_analyzed,
+        total_pairs_detected: res.total_pairs_detected,
+        companion_pairs: res.companion_pairs,
+        companion_groups: res.companion_groups,
+      }
+      selectedCompanionPair.value = null
+      activeRightTab.value = 'analysis'
+      showToast(`检测到 ${res.total_pairs_detected} 对伴随关系`, 'success')
+    } catch (e: unknown) {
+      showToast('伴随检测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function selectCompanionPair(pair: CompanionPair) {
+    selectedCompanionPair.value = pair
+  }
+
+  function clearCompanionResult() {
+    companionResult.value = null
+    selectedCompanionPair.value = null
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -964,6 +1020,8 @@ export const useAppStore = defineStore('app', () => {
     densityResult,
     simplifyResult,
     simplifyComparison,
+    companionResult,
+    selectedCompanionPair,
     ports,
     selectedPortId,
     selectedPort,
@@ -993,6 +1051,9 @@ export const useAppStore = defineStore('app', () => {
     fetchSimplifiedTrajectory,
     fetchSimplificationComparison,
     clearSimplifyResult,
+    detectCompanions,
+    selectCompanionPair,
+    clearCompanionResult,
     fetchPorts,
     selectPort,
     createPortByBBox,

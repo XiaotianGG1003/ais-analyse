@@ -27,6 +27,7 @@ let cpaLayer: L.LayerGroup | null = null
 let densityLayer: L.LayerGroup | null = null
 let portsLayer: L.LayerGroup | null = null
 let simplifyLayer: L.LayerGroup | null = null
+let companionLayer: L.LayerGroup | null = null
 let creatingPort = false
 let createPortName = ''
 let drawnItems: L.FeatureGroup
@@ -1420,6 +1421,108 @@ function clearSimplifiedTrajectory() {
   }
 }
 
+// ---- Companion Pattern Visualization ----
+function renderCompanions() {
+  if (!store.companionResult) return
+  clearCompanions()
+  
+  companionLayer = L.layerGroup()
+  const result = store.companionResult
+  
+  // 渲染所有伴随对
+  result.companion_pairs.forEach((pair, index) => {
+    // 为每对伴随分配颜色
+    const hue = (index * 137.5) % 360  // 黄金角分布
+    const color = `hsl(${hue}, 70%, 50%)`
+    
+    // 渲染伴随段
+    pair.segments.forEach((segment) => {
+      // 绘制连接线
+      segment.path.forEach((point) => {
+        const line = L.polyline(
+          [
+            [point.vessel_a.lat, point.vessel_a.lon],
+            [point.vessel_b.lat, point.vessel_b.lon],
+          ],
+          {
+            color: color,
+            weight: 2,
+            opacity: 0.6,
+            dashArray: '5, 5',
+          }
+        ).addTo(companionLayer!)
+      })
+      
+      // 标记起点和终点
+      if (segment.path.length > 0) {
+        const start = segment.path[0]
+        const end = segment.path[segment.path.length - 1]
+        
+        // 起点标记
+        L.circleMarker([start.vessel_a.lat, start.vessel_a.lon], {
+          radius: 5,
+          fillColor: color,
+          color: '#fff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9,
+        }).addTo(companionLayer!).bindTooltip(
+          `<div style="font-size:10px;">
+            <div style="font-weight:600;color:${color}">${pair.vessel_name_a} ↔ ${pair.vessel_name_b}</div>
+            <div>伴随开始: ${new Date(start.timestamp).toLocaleString()}</div>
+            <div>距离: ${start.distance_nm} 海里</div>
+          </div>`,
+          { direction: 'top' }
+        )
+        
+        // 终点标记
+        L.circleMarker([end.vessel_a.lat, end.vessel_a.lon], {
+          radius: 5,
+          fillColor: color,
+          color: '#fff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9,
+        }).addTo(companionLayer!).bindTooltip(
+          `<div style="font-size:10px;">
+            <div style="font-weight:600;color:${color}">${pair.vessel_name_a} ↔ ${pair.vessel_name_b}</div>
+            <div>伴随结束: ${new Date(end.timestamp).toLocaleString()}</div>
+            <div>持续: ${segment.duration_minutes} 分钟</div>
+          </div>`,
+          { direction: 'top' }
+        )
+      }
+    })
+  })
+  
+  companionLayer.addTo(map)
+}
+
+function highlightCompanionPair(pair) {
+  if (!companionLayer || !pair.segments.length) return
+  
+  // 高亮选中的伴随对（放大显示）
+  const bounds: [number, number][] = []
+  
+  pair.segments.forEach((segment) => {
+    segment.path.forEach((point) => {
+      bounds.push([point.vessel_a.lat, point.vessel_a.lon])
+      bounds.push([point.vessel_b.lat, point.vessel_b.lon])
+    })
+  })
+  
+  if (bounds.length > 0) {
+    map.fitBounds(bounds, { padding: [100, 100] })
+  }
+}
+
+function clearCompanions() {
+  if (companionLayer) {
+    map.removeLayer(companionLayer)
+    companionLayer = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
@@ -1429,6 +1532,7 @@ watch(
     clearCPA()
     clearDensity()
     clearSimplifiedTrajectory()
+    clearCompanions()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -1531,6 +1635,27 @@ watch(
       renderSimplifiedTrajectory()
     } else {
       clearSimplifiedTrajectory()
+    }
+  },
+)
+
+// Watch Companion result
+watch(
+  () => store.companionResult,
+  (result) => {
+    if (result) {
+      renderCompanions()
+    } else {
+      clearCompanions()
+    }
+  },
+)
+
+watch(
+  () => store.selectedCompanionPair,
+  (pair) => {
+    if (pair) {
+      highlightCompanionPair(pair)
     }
   },
 )

@@ -25,6 +25,12 @@ const densityCustomStart = ref('')
 const densityCustomEnd = ref('')
 const simplifyPanelOpen = ref(false)
 const simplifyTolerance = ref(100)
+const companionPanelOpen = ref(false)
+const companionMaxDistance = ref(2.0)  // 海里
+const companionMinDuration = ref(30)   // 分钟
+const companionTimeRange = ref<'custom'>('custom')
+const companionStartTime = ref('')
+const companionEndTime = ref('')
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -261,6 +267,32 @@ async function onCompareSimplification() {
     return
   }
   await store.fetchSimplificationComparison(store.selectedShip.mmsi)
+}
+
+function onToggleCompanion() {
+  companionPanelOpen.value = !companionPanelOpen.value
+  // 设置默认时间范围为当前选择的时间范围
+  if (companionPanelOpen.value && !companionStartTime.value && store.timeStart) {
+    companionStartTime.value = store.timeStart
+    companionEndTime.value = store.timeEnd
+  }
+}
+
+async function onDetectCompanions() {
+  if (!companionStartTime.value || !companionEndTime.value) {
+    store.showToast('请设置时间范围', 'warning')
+    return
+  }
+  
+  const startTime = new Date(companionStartTime.value).toISOString()
+  const endTime = new Date(companionEndTime.value).toISOString()
+  
+  await store.detectCompanions({
+    startTime,
+    endTime,
+    maxDistanceNm: companionMaxDistance.value,
+    minDurationMinutes: companionMinDuration.value,
+  })
 }
 
 function onCalcDist() {
@@ -663,6 +695,18 @@ onBeforeUnmount(() => {
             <path d="M2 20h20" />
           </svg>
           轨迹压缩
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleCompanion"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="5" cy="5" r="2" />
+            <circle cx="19" cy="5" r="2" />
+            <path d="M12 12L5 5M12 12l7-7" />
+          </svg>
+          伴随分析
         </button>
         <button
           class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
@@ -1343,6 +1387,140 @@ onBeforeUnmount(() => {
           v-if="store.simplifyResult || store.simplifyComparison"
           class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
           @click="store.clearSimplifyResult()"
+        >
+          清除结果
+        </button>
+      </div>
+    </div>
+
+    <!-- Companion Analysis Panel -->
+    <div v-if="companionPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">伴随模式检测</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="companionPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div class="text-xs text-slate-400">
+          <p>检测在相近时间内沿相似航线一起航行的船舶</p>
+        </div>
+        
+        <!-- 时间范围 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">时间范围</span>
+          <input
+            v-model="companionStartTime"
+            type="datetime-local"
+            class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500 mb-2"
+            style="background: #1a2332; color: #e2e8f0"
+            placeholder="开始时间"
+          />
+          <input
+            v-model="companionEndTime"
+            type="datetime-local"
+            class="w-full text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+            placeholder="结束时间"
+          />
+        </div>
+        
+        <!-- 最大伴随距离 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">最大伴随距离: {{ companionMaxDistance }} 海里</span>
+          <input
+            v-model.number="companionMaxDistance"
+            type="range"
+            min="0.5"
+            max="5"
+            step="0.5"
+            class="w-full"
+          />
+          <div class="flex justify-between text-[10px] text-slate-600">
+            <span>0.5nm</span>
+            <span>5nm</span>
+          </div>
+        </div>
+        
+        <!-- 最小伴随时长 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">最小伴随时长: {{ companionMinDuration }} 分钟</span>
+          <input
+            v-model.number="companionMinDuration"
+            type="range"
+            min="10"
+            max="120"
+            step="10"
+            class="w-full"
+          />
+          <div class="flex justify-between text-[10px] text-slate-600">
+            <span>10min</span>
+            <span>120min</span>
+          </div>
+        </div>
+        
+        <!-- 检测按钮 -->
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #8b5cf6, #7c3aed)"
+          @click="onDetectCompanions"
+        >
+          检测伴随模式
+        </button>
+        
+        <!-- 结果显示 -->
+        <div v-if="store.companionResult" class="mt-3 space-y-2">
+          <div class="text-xs font-medium text-slate-300">
+            检测到 {{ store.companionResult.total_pairs_detected }} 对伴随关系
+          </div>
+          
+          <!-- 伴随群组 -->
+          <div v-if="store.companionResult.companion_groups.length > 0" class="space-y-1">
+            <div class="text-[10px] text-slate-500">伴随群组:</div>
+            <div
+              v-for="(group, idx) in store.companionResult.companion_groups"
+              :key="idx"
+              class="p-2 bg-navy-600/50 rounded-md"
+            >
+              <div class="text-xs text-slate-300">
+                群组 {{ idx + 1 }}: {{ group.group_size }} 艘船舶
+              </div>
+              <div class="text-[10px] text-slate-400 mt-1">
+                {{ group.vessels.map(v => v.vessel_name).join(', ') }}
+              </div>
+            </div>
+          </div>
+          
+          <!-- 伴随对列表 -->
+          <div class="max-h-[200px] overflow-y-auto space-y-1">
+            <div
+              v-for="pair in store.companionResult.companion_pairs.slice(0, 5)"
+              :key="`${pair.mmsi_a}-${pair.mmsi_b}`"
+              class="p-2 bg-navy-600/30 rounded-md cursor-pointer hover:bg-navy-600/50"
+              @click="store.selectCompanionPair(pair)"
+            >
+              <div class="flex justify-between items-center">
+                <span class="text-xs text-slate-300">{{ pair.vessel_name_a }} ↔ {{ pair.vessel_name_b }}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded" :class="pair.companion_score > 80 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-ocean-500/20 text-ocean-400'">{{ pair.companion_score }}分</span>
+              </div>
+              <div class="text-[10px] text-slate-500 mt-1">
+                伴随 {{ pair.total_duration_minutes }} 分钟, {{ pair.segment_count }} 段
+              </div>
+            </div>
+            <div v-if="store.companionResult.companion_pairs.length > 5" class="text-xs text-slate-500 text-center">
+              还有 {{ store.companionResult.companion_pairs.length - 5 }} 对...
+            </div>
+          </div>
+        </div>
+        
+        <!-- 清除按钮 -->
+        <button
+          v-if="store.companionResult"
+          class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
+          @click="store.clearCompanionResult()"
         >
           清除结果
         </button>
