@@ -26,6 +26,22 @@ CREATE INDEX IF NOT EXISTS idx_ais_raw_mmsi ON ais_raw(mmsi);
 CREATE INDEX IF NOT EXISTS idx_ais_raw_time ON ais_raw(base_date_time);
 CREATE INDEX IF NOT EXISTS idx_ais_raw_mmsi_time ON ais_raw(mmsi, base_date_time);
 
+-- 港口表（矩形区域）
+CREATE TABLE IF NOT EXISTS ports (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    area_geom geometry(Polygon, 4326) NOT NULL,
+    bbox_min_lon DOUBLE PRECISION NOT NULL,
+    bbox_min_lat DOUBLE PRECISION NOT NULL,
+    bbox_max_lon DOUBLE PRECISION NOT NULL,
+    bbox_max_lat DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ports_area_geom ON ports USING GIST(area_geom);
+CREATE INDEX IF NOT EXISTS idx_ports_name ON ports(name);
+
 -- 轨迹聚合表（导入数据后执行）
 -- 使用函数封装，可在数据导入后调用 SELECT build_vessel_trips();
 CREATE OR REPLACE FUNCTION build_vessel_trips() RETURNS void AS $$

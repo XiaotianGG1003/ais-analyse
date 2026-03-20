@@ -25,6 +25,9 @@ let animationShipMarker: L.Marker | null = null
 let animationTrailLayer: L.Polyline | null = null
 let cpaLayer: L.LayerGroup | null = null
 let densityLayer: L.LayerGroup | null = null
+let portsLayer: L.LayerGroup | null = null
+let creatingPort = false
+let createPortName = ''
 let drawnItems: L.FeatureGroup
 let drawControl: L.Draw.Rectangle | null = null
 let isDrawing = false
@@ -305,6 +308,109 @@ async function setDefaultViewFromTrajectoryExtent() {
 function clearShipMarkers() {
   Object.values(shipMarkers).forEach((m) => map.removeLayer(m))
   for (const k of Object.keys(shipMarkers)) delete shipMarkers[Number(k)]
+}
+
+function renderPorts() {
+  if (!map) return
+  if (portsLayer) {
+    map.removeLayer(portsLayer)
+    portsLayer = null
+  }
+
+  const layer = L.layerGroup()
+  store.ports.forEach((port) => {
+    const latlngs = port.polygon.coordinates[0].map((c: number[]) => [c[1], c[0]] as [number, number])
+    const isSelected = store.selectedPortId === port.id
+    const polygon = L.polygon(latlngs, {
+      color: isSelected ? '#22D3EE' : '#60A5FA',
+      weight: isSelected ? 3 : 2,
+      fillColor: '#38BDF8',
+      fillOpacity: isSelected ? 0.22 : 0.12,
+    })
+
+    polygon.bindTooltip(port.name)
+    polygon.on('click', () => {
+      store.selectPort(port.id)
+      focusPort(port.id)
+    })
+    layer.addLayer(polygon)
+  })
+
+  layer.addTo(map)
+  portsLayer = layer
+}
+
+function focusPort(portId: number) {
+  const port = store.ports.find((p) => p.id === portId)
+  if (!port || !map) return
+
+  const b = port.bbox
+  map.fitBounds(
+    [
+      [b.min_lat, b.min_lon],
+      [b.max_lat, b.max_lon],
+    ],
+    { padding: [24, 24], maxZoom: 14 },
+  )
+}
+
+function stopPortCreateMode() {
+  creatingPort = false
+  createPortName = ''
+  if (drawControl) drawControl.disable()
+  map.off(L.Draw.Event.CREATED, onPortDrawCreated)
+}
+
+async function onPortDrawCreated(e: L.LeafletEvent) {
+  const createdEvent = e as unknown as L.DrawEvents.Created
+  const rect = createdEvent.layer as L.Rectangle
+  const bounds = rect.getBounds()
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+  const currentPortName = createPortName
+
+  stopPortCreateMode()
+
+  const created = await store.createPortByBBox(currentPortName, {
+    min_lon: sw.lng,
+    min_lat: sw.lat,
+    max_lon: ne.lng,
+    max_lat: ne.lat,
+  })
+
+  if (created) {
+    await store.fetchPorts()
+    renderPorts()
+    focusPort(created.id)
+  }
+}
+
+function startPortCreateMode(name: string) {
+  if (!map) return
+  const normalizedName = name.trim()
+  if (!normalizedName) {
+    store.showToast('港口名称不能为空', 'warning')
+    return
+  }
+
+  stopAreaDraw()
+  stopPortCreateMode()
+  createPortName = normalizedName
+  creatingPort = true
+  store.showToast(`请在地图上框选港口区域：${normalizedName}`, 'info')
+
+  const control = new (L.Draw as any).Rectangle(map, {
+    shapeOptions: {
+      color: '#22D3EE',
+      fillColor: '#22D3EE',
+      fillOpacity: 0.12,
+      weight: 2,
+      dashArray: '8, 4',
+    },
+  })
+  drawControl = control
+  control.enable()
+  map.on(L.Draw.Event.CREATED, onPortDrawCreated)
 }
 
 function renderShips(selectedMmsi?: number) {
@@ -1334,6 +1440,24 @@ watch(
   },
 )
 
+watch(
+  () => store.ports,
+  () => {
+    renderPorts()
+  },
+  { deep: true },
+)
+
+watch(
+  () => store.selectedPortId,
+  (portId) => {
+    renderPorts()
+    if (portId) {
+      focusPort(portId)
+    }
+  },
+)
+
 // Invalidate size when panels toggle
 watch(
   () => [store.leftPanelOpen, store.rightPanelOpen],
@@ -1346,12 +1470,15 @@ onMounted(async () => {
   await nextTick()
   initMap()
   await store.fetchShips()
+  await store.fetchPorts()
+  renderPorts()
   await setDefaultViewFromTrajectoryExtent()
   await setDefaultViewFromTrajectoryExtent()
 })
 
 onUnmounted(() => {
   stopManualPreparePolling()
+  stopPortCreateMode()
   map.off('mousedown', onMapMouseDownStartTrack)
   map.off('mousemove', onMapMouseMoveTrack)
   map.off('mouseup', onMapMouseUpEndTrack)
@@ -1441,6 +1568,8 @@ async function refreshHeatmap() {
 defineExpose({
   queryTrack,
   toggleAreaDraw,
+  startPortCreateMode,
+  focusPort,
   calcDistance,
   startPrediction,
   clearAreaDraw,

@@ -204,7 +204,7 @@ function renderSOGDistChart() {
   })
 }
 
-function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' | 'stops' | 'cpa') {
+function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' | 'stops' | 'cpa' | 'port') {
   if (item === 'area') store.areaDetectionResult = null
   if (item === 'distance') store.distanceResult = null
   if (item === 'prediction') store.predictionResult = null
@@ -214,6 +214,7 @@ function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' 
   }
   if (item === 'stops') store.stopDetectionResult = null
   if (item === 'cpa') store.cpaResult = null
+  if (item === 'port') store.portAnalysisResult = null
 }
 
 function onFocusSimilarTrack(coords: number[][]) {
@@ -228,6 +229,7 @@ const hasAnalysis = () =>
   || store.similarTracksResult.length > 0
   || store.stopDetectionResult
   || store.cpaResult
+  || store.portAnalysisResult
 
 window.addEventListener('resize', handleResize)
 onUnmounted(() => {
@@ -853,6 +855,73 @@ onUnmounted(() => {
                   {{ item.track.coordinates[item.track.coordinates.length - 1][0].toFixed(3) }}°E,
                   {{ item.track.coordinates[item.track.coordinates.length - 1][1].toFixed(3) }}°N
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Port Analysis Result -->
+        <div v-if="store.portAnalysisResult" class="space-y-3 mt-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+              港口船舶分析
+            </h4>
+            <button
+              class="text-slate-500 hover:text-slate-300"
+              @click="clearAnalysisItem('port')"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+            <div class="text-sm text-cyan-300 font-medium mb-2">{{ store.portAnalysisResult.port_name }}</div>
+            <div class="grid grid-cols-2 gap-2 text-[11px]">
+              <div class="rounded-md bg-slate-800/50 p-2">
+                <div class="text-slate-500">涉及船舶</div>
+                <div class="text-slate-200 font-mono text-base">{{ store.portAnalysisResult.unique_vessel_count }}</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2">
+                <div class="text-slate-500">进港次数</div>
+                <div class="text-slate-200 font-mono text-base">{{ store.portAnalysisResult.entry_count }}</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2">
+                <div class="text-slate-500">出港次数</div>
+                <div class="text-slate-200 font-mono text-base">{{ store.portAnalysisResult.exit_count }}</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2">
+                <div class="text-slate-500">平均停留(分)</div>
+                <div class="text-slate-200 font-mono text-base">{{ store.portAnalysisResult.avg_stay_minutes.toFixed(1) }}</div>
+              </div>
+            </div>
+            <div class="mt-2 rounded-md bg-slate-800/50 p-2 text-[11px] flex justify-between">
+              <span class="text-slate-500">总停留时长</span>
+              <span class="font-mono text-cyan-300">{{ store.portAnalysisResult.total_stay_minutes.toFixed(1) }} 分钟</span>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3">
+            <div class="text-[11px] text-slate-400 mb-2">停留时长 Top 船舶</div>
+            <div v-if="store.portAnalysisResult.top_vessels.length === 0" class="text-[11px] text-slate-500">
+              当前时间范围内无停留记录
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="v in store.portAnalysisResult.top_vessels"
+                :key="v.mmsi"
+                class="rounded-md border border-slate-700/40 bg-slate-900/40 px-2.5 py-2"
+              >
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-slate-200">{{ v.vessel_name || v.mmsi }}</span>
+                  <span class="text-cyan-300 font-mono">{{ v.stay_minutes.toFixed(1) }} 分钟</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-1">MMSI: {{ v.mmsi }} · 停靠次数: {{ v.visit_count }}</div>
               </div>
             </div>
           </div>

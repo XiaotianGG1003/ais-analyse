@@ -49,6 +49,8 @@ const pklOutputPath = ref('')
 const importHistory = ref<ImportTaskStatus[]>([])
 const shipPage = ref(1)
 const shipPageSize = ref(10)
+const portName = ref('')
+const portPanelOpen = ref(false)
 let importPollTimer: number | null = null
 
 const totalShipPages = computed(() => {
@@ -99,6 +101,8 @@ const emit = defineEmits<{
   detectStops: [distanceThresholdM: number, timeThresholdMinutes: number]
   toggleAnimation: []
   analyzeCpa: []
+  startPortDraw: [name: string]
+  locatePort: [portId: number]
 }>()
 
 function onQueryTrack() {
@@ -184,6 +188,36 @@ async function onAnalyzeCPA() {
 
 function onToggleDensity() {
   densityPanelOpen.value = !densityPanelOpen.value
+}
+
+async function onSearchPorts() {
+  await store.fetchPorts(portName.value)
+}
+
+function onStartPortDraw() {
+  const name = portName.value.trim()
+  if (!name) {
+    store.showToast('请输入港口名称', 'warning')
+    return
+  }
+  emit('startPortDraw', name)
+}
+
+async function onDeletePort(portId: number) {
+  const ok = window.confirm('确认物理删除该港口吗？删除后不可恢复。')
+  if (!ok) return
+  await store.removePort(portId)
+}
+
+async function onAnalyzePort(portId: number) {
+  store.selectPort(portId)
+  emit('locatePort', portId)
+  await store.fetchPortAnalysis(portId)
+}
+
+function onSelectPort(portId: number) {
+  store.selectPort(portId)
+  emit('locatePort', portId)
 }
 
 async function onAnalyzeDensity(type: 'heatmap' | 'corridors' | 'speed') {
@@ -394,6 +428,7 @@ async function onImportByPath() {
 
 onMounted(() => {
   void loadImportHistory()
+  void store.fetchPorts()
 })
 
 onBeforeUnmount(() => {
@@ -623,6 +658,78 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Distance Calculator -->
+    <div class="px-4 py-3 border-b border-slate-700/20">
+      <button
+        class="w-full flex items-center justify-between text-xs text-slate-500 font-medium mb-2"
+        @click="portPanelOpen = !portPanelOpen"
+      >
+        <span>港口管理</span>
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" :class="portPanelOpen ? 'rotate-180' : ''">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div v-if="portPanelOpen" class="space-y-2">
+        <div class="flex items-center gap-2">
+          <input
+            v-model="portName"
+            type="text"
+            placeholder="输入港口名称（可添加/搜索）"
+            class="flex-1 text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-ocean-500"
+            style="background: #1a2332; color: #e2e8f0"
+            @keyup.enter="onSearchPorts"
+          />
+          <button
+            class="shrink-0 px-2 py-1.5 text-xs font-medium rounded-md border border-ocean-500/40 text-ocean-300 hover:bg-ocean-500/10 transition"
+            @click="onStartPortDraw"
+            title="在地图框选港口区域"
+          >
+            添加
+          </button>
+          <button
+            class="shrink-0 px-2 py-1.5 text-xs font-medium rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700/50 transition"
+            @click="onSearchPorts"
+          >
+            搜索
+          </button>
+        </div>
+        <div class="max-h-44 overflow-y-auto rounded-md border border-slate-700/50">
+          <div
+            v-for="p in store.ports"
+            :key="p.id"
+            class="px-2 py-2 border-b border-slate-700/40 last:border-b-0"
+            :class="store.selectedPortId === p.id ? 'bg-ocean-500/10' : 'bg-slate-900/40'"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <button
+                class="text-left flex-1"
+                @click="onSelectPort(p.id)"
+              >
+                <div class="text-xs text-slate-200">{{ p.name }}</div>
+                <div class="text-[10px] text-slate-500">ID: {{ p.id }}</div>
+              </button>
+              <div class="flex items-center gap-1">
+                <button
+                  class="px-2 py-1 text-[10px] rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                  @click="onAnalyzePort(p.id)"
+                >
+                  分析
+                </button>
+                <button
+                  class="px-2 py-1 text-[10px] rounded border border-rose-500/40 text-rose-400 hover:bg-rose-500/10"
+                  @click="onDeletePort(p.id)"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="store.ports.length === 0" class="px-2 py-3 text-[11px] text-slate-500 text-center">
+            暂无港口，请先绘制矩形新增
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="distancePanelOpen" class="px-4 py-3 border-b border-slate-700/20">
       <div class="flex items-center justify-between mb-2">
         <label class="text-xs text-slate-500 font-medium">两船距离计算</label>
@@ -1112,13 +1219,13 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Ship List -->
-    <div class="flex-1 min-h-0 px-2 py-2 flex flex-col">
+    <div class="px-2 py-2 border-t border-slate-700/20 flex flex-col min-h-[280px]">
       <div class="flex items-center justify-between px-2 mb-2">
         <span class="text-[11px] text-slate-500 font-medium">船舶列表</span>
         <span class="text-[10px] text-slate-600 font-mono">总计 {{ store.vesselTotal }} 艘</span>
       </div>
 
-      <div class="flex-1 overflow-y-auto space-y-1 pr-1">
+      <div class="max-h-[320px] overflow-y-auto space-y-1 pr-1">
         <div
           v-for="ship in store.ships"
           :key="ship.mmsi"

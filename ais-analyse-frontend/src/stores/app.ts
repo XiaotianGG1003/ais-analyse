@@ -4,6 +4,7 @@ import type { Ship, TrackStatistics, AreaDetectionResult, DistanceResultData, Pr
 import { MOCK_SHIPS } from '@/data/mockData'
 import * as api from '@/api'
 import type { ManualTrackPoint, SimilarTrackItemData } from '@/api'
+import type { PortAnalysisResponse, PortItem } from '@/api'
 
 // 固定调色板，给从后端加载的船舶分配颜色
 const PALETTE = [
@@ -167,6 +168,11 @@ export const useAppStore = defineStore('app', () => {
     data: any
   } | null>(null)
 
+  // Ports
+  const ports = ref<PortItem[]>([])
+  const selectedPortId = ref<number | null>(null)
+  const portAnalysisResult = ref<PortAnalysisResponse | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -178,6 +184,10 @@ export const useAppStore = defineStore('app', () => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
     }, 3000)
   }
+
+  const selectedPort = computed(() =>
+    ports.value.find((p) => p.id === selectedPortId.value) ?? null,
+  )
 
   async function selectShip(mmsi: number | null) {
     selectedMMSI.value = mmsi
@@ -225,6 +235,70 @@ export const useAppStore = defineStore('app', () => {
       } catch {
         // detail fetch is best-effort, continue without it
       }
+    }
+  }
+
+  async function fetchPorts(keyword = '') {
+    try {
+      const res = await api.listPorts(1, 100, keyword)
+      ports.value = res.items
+      if (selectedPortId.value && !ports.value.some((p) => p.id === selectedPortId.value)) {
+        selectedPortId.value = null
+      }
+    } catch (e: unknown) {
+      showToast('加载港口列表失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function selectPort(portId: number | null) {
+    selectedPortId.value = portId
+  }
+
+  async function createPortByBBox(name: string, bbox: api.PortBBox) {
+    try {
+      const created = await api.createPort(name, bbox)
+      ports.value.unshift(created)
+      selectedPortId.value = created.id
+      showToast(`港口 ${created.name} 创建成功`, 'success')
+      return created
+    } catch (e: unknown) {
+      showToast('创建港口失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+      return null
+    }
+  }
+
+  async function removePort(portId: number) {
+    try {
+      await api.deletePort(portId)
+      ports.value = ports.value.filter((p) => p.id !== portId)
+      if (selectedPortId.value === portId) {
+        selectedPortId.value = null
+      }
+      if (portAnalysisResult.value?.port_id === portId) {
+        portAnalysisResult.value = null
+      }
+      showToast('港口已删除', 'success')
+      return true
+    } catch (e: unknown) {
+      showToast('删除港口失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+      return false
+    }
+  }
+
+  async function fetchPortAnalysis(portId: number, topN = 5) {
+    if (!timeStart.value || !timeEnd.value) {
+      showToast('请先选择时间范围', 'warning')
+      return
+    }
+    try {
+      const startISO = timeStart.value + ':00Z'
+      const endISO = timeEnd.value + ':00Z'
+      const res = await api.getPortAnalysis(portId, startISO, endISO, topN)
+      portAnalysisResult.value = res
+      activeRightTab.value = 'analysis'
+      showToast(`港口分析完成：${res.port_name}`, 'success')
+    } catch (e: unknown) {
+      showToast('港口分析失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
     }
   }
 
@@ -816,6 +890,10 @@ export const useAppStore = defineStore('app', () => {
     animationData,
     cpaResult,
     densityResult,
+    ports,
+    selectedPortId,
+    selectedPort,
+    portAnalysisResult,
     heatmapVisible,
     toasts,
     showToast,
@@ -838,6 +916,11 @@ export const useAppStore = defineStore('app', () => {
     fetchCPA,
     fetchDensityAnalysis,
     clearDensityResult,
+    fetchPorts,
+    selectPort,
+    createPortByBBox,
+    removePort,
+    fetchPortAnalysis,
     toggleLeftPanel,
     toggleRightPanel,
   }

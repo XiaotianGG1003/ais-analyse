@@ -53,6 +53,14 @@ function onToggleAnimation() {
 function onAnalyzeCpa() {
   // CPA analysis triggered from LeftPanel
 }
+
+function onStartPortDraw(name: string) {
+  mapViewRef.value?.startPortCreateMode(name)
+}
+
+function onLocatePort(portId: number) {
+  mapViewRef.value?.focusPort(portId)
+}
 </script>
 
 <template>
@@ -71,6 +79,8 @@ function onAnalyzeCpa() {
         @detect-stops="onDetectStops"
         @toggle-animation="onToggleAnimation"
         @analyze-cpa="onAnalyzeCpa"
+        @start-port-draw="onStartPortDraw"
+        @locate-port="onLocatePort"
       />
       <MapView ref="mapViewRef" />
       <RightPanel @focus-similar-track="onFocusSimilarTrack" />

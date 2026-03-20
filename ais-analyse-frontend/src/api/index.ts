@@ -574,3 +574,81 @@ export function getTimeDistribution(
   if (mmsi) url += `&mmsi=${mmsi}`
   return request<TimeDistributionData>(url)
 }
+
+/* ---- Ports ---- */
+
+export interface PortBBox {
+  min_lon: number
+  min_lat: number
+  max_lon: number
+  max_lat: number
+}
+
+export interface PortItem {
+  id: number
+  name: string
+  bbox: PortBBox
+  polygon: GeoJSON.Polygon
+  created_at: string
+}
+
+export interface PortListResponse {
+  total: number
+  page: number
+  page_size: number
+  items: PortItem[]
+}
+
+export interface PortStayVessel {
+  mmsi: number
+  vessel_name: string | null
+  stay_minutes: number
+  visit_count: number
+}
+
+export interface PortAnalysisResponse {
+  port_id: number
+  port_name: string
+  start_time: string
+  end_time: string
+  unique_vessel_count: number
+  entry_count: number
+  exit_count: number
+  total_stay_minutes: number
+  avg_stay_minutes: number
+  top_vessels: PortStayVessel[]
+}
+
+export function listPorts(page = 1, pageSize = 50, keyword?: string) {
+  let url = `/ports?page=${page}&page_size=${pageSize}`
+  if (keyword?.trim()) {
+    url += `&keyword=${encodeURIComponent(keyword.trim())}`
+  }
+  return request<PortListResponse>(url)
+}
+
+export function createPort(name: string, bbox: PortBBox) {
+  return request<PortItem>('/ports', {
+    method: 'POST',
+    body: JSON.stringify({ name, bbox }),
+  })
+}
+
+export async function deletePort(portId: number): Promise<{ deleted: boolean; port_id: number }> {
+  const res = await fetch(`${BASE}/ports/${portId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  return json.data
+}
+
+export function getPortAnalysis(portId: number, startTime: string, endTime: string, topN = 5) {
+  return request<PortAnalysisResponse>(
+    `/ports/${portId}/analysis?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&top_n=${topN}`,
+  )
+}
