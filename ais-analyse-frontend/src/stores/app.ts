@@ -773,16 +773,18 @@ export const useAppStore = defineStore('app', () => {
         params.maxDistanceNm,
         params.minDurationMinutes,
       )
+      // API 返回的是 { code, data } 结构
+      const data = res.data || res
       companionResult.value = {
-        query_params: res.query_params,
-        total_vessels_analyzed: res.total_vessels_analyzed,
-        total_pairs_detected: res.total_pairs_detected,
-        companion_pairs: res.companion_pairs,
-        companion_groups: res.companion_groups,
+        query_params: data.query_params,
+        total_vessels_analyzed: data.total_vessels_analyzed,
+        total_pairs_detected: data.total_pairs_detected || 0,
+        companion_pairs: data.companion_pairs || [],
+        companion_groups: data.companion_groups || [],
       }
       selectedCompanionPair.value = null
       activeRightTab.value = 'analysis'
-      showToast(`检测到 ${res.total_pairs_detected} 对伴随关系`, 'success')
+      showToast(`检测到 ${data.total_pairs_detected || 0} 对伴随关系`, 'success')
     } catch (e: unknown) {
       showToast('伴随检测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
     }

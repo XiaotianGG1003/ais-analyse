@@ -775,7 +775,7 @@ export function detectCompanions(
   endTime: string,
   maxDistanceNm = 2.0,
   minDurationMinutes = 30,
-  maxVessels = 500,
+  maxVessels = 50,  // 减少默认数量避免超时
 ) {
   let url = `/companions/detect?start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`
   url += `&max_distance_nm=${maxDistanceNm}&min_duration_minutes=${minDurationMinutes}&max_vessels=${maxVessels}`

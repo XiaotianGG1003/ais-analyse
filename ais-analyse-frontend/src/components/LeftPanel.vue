@@ -31,6 +31,7 @@ const companionMinDuration = ref(30)   // 分钟
 const companionTimeRange = ref<'custom'>('custom')
 const companionStartTime = ref('')
 const companionEndTime = ref('')
+const companionLoading = ref(false)
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -284,15 +285,30 @@ async function onDetectCompanions() {
     return
   }
   
-  const startTime = new Date(companionStartTime.value).toISOString()
-  const endTime = new Date(companionEndTime.value).toISOString()
+  // 检查时间范围不要太大（建议最多3小时）
+  const start = new Date(companionStartTime.value)
+  const end = new Date(companionEndTime.value)
+  const hoursDiff = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
   
-  await store.detectCompanions({
-    startTime,
-    endTime,
-    maxDistanceNm: companionMaxDistance.value,
-    minDurationMinutes: companionMinDuration.value,
-  })
+  if (hoursDiff > 6) {
+    store.showToast('时间范围建议不超过6小时，否则查询会很慢', 'warning')
+    // 继续执行，只是警告
+  }
+  
+  companionLoading.value = true
+  try {
+    const startTime = start.toISOString()
+    const endTime = end.toISOString()
+    
+    await store.detectCompanions({
+      startTime,
+      endTime,
+      maxDistanceNm: companionMaxDistance.value,
+      minDurationMinutes: companionMinDuration.value,
+    })
+  } finally {
+    companionLoading.value = false
+  }
 }
 
 function onCalcDist() {
@@ -1466,10 +1482,16 @@ onBeforeUnmount(() => {
         <button
           class="w-full py-1.5 text-xs font-medium text-white rounded-md"
           style="background: linear-gradient(135deg, #8b5cf6, #7c3aed)"
+          :disabled="companionLoading"
           @click="onDetectCompanions"
         >
-          检测伴随模式
+          {{ companionLoading ? '检测中...' : '检测伴随模式' }}
         </button>
+        
+        <!-- 提示信息 -->
+        <div class="text-[10px] text-slate-500 mt-2">
+          提示：时间范围建议 1-3 小时，分析 50 艘船舶约需 10-30 秒
+        </div>
         
         <!-- 结果显示 -->
         <div v-if="store.companionResult" class="mt-3 space-y-2">
