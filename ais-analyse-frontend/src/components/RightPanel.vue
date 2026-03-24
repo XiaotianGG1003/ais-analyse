@@ -18,6 +18,7 @@ const speedChartEl = ref<HTMLDivElement>()
 const sogDistChartEl = ref<HTMLDivElement>()
 let speedChart: ECharts | null = null
 let sogDistChart: ECharts | null = null
+const anomalyLoading = ref(false)
 
 function formatUtcHm(time: string) {
   const d = new Date(time)
@@ -217,12 +218,44 @@ function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' 
   if (item === 'port') store.portAnalysisResult = null
 }
 
+function formatAnomalyType(eventType: string) {
+  if (eventType === 'overspeed') return '超速异常'
+  if (eventType === 'sharp_turn') return '急转向异常'
+  if (eventType === 'abnormal_stop') return '异常停留'
+  if (eventType === 'forbidden_area_entry') return '禁入区进入'
+  return eventType
+}
+
+function anomalySeverityClass(level: 'high' | 'medium' | 'low') {
+  if (level === 'high') return 'text-rose-300 bg-rose-500/20 border-rose-500/30'
+  if (level === 'medium') return 'text-amber-300 bg-amber-500/20 border-amber-500/30'
+  return 'text-sky-300 bg-sky-500/20 border-sky-500/30'
+}
+
+function anomalySeverityLabel(level: 'high' | 'medium' | 'low') {
+  if (level === 'high') return '高风险'
+  if (level === 'medium') return '中风险'
+  return '低风险'
+}
+
+async function runAnomalyDetect() {
+  if (anomalyLoading.value) return
+  anomalyLoading.value = true
+  try {
+    await store.fetchAnomalies()
+  } finally {
+    anomalyLoading.value = false
+  }
+}
+
 function onFocusSimilarTrack(coords: number[][]) {
   if (!coords || coords.length < 2) return
   emit('focusSimilarTrack', coords)
 }
 
 const hasAnalysis = () =>
+  store.anomalyResult
+  ||
   store.areaDetectionResult
   || store.distanceResult
   || store.predictionResult
@@ -542,6 +575,121 @@ onUnmounted(() => {
           </div>
           <p class="text-sm text-slate-500 mb-1">暂无分析结果</p>
           <p class="text-xs text-slate-600">请使用左侧工具进行分析操作</p>
+        </div>
+
+        <!-- Anomaly Alarm Panel -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              异常告警
+            </h4>
+            <div class="flex items-center gap-2">
+              <button
+                class="text-[11px] px-2.5 py-1 rounded border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition disabled:opacity-50"
+                :disabled="anomalyLoading"
+                @click="runAnomalyDetect"
+              >
+                {{ anomalyLoading ? '检测中...' : '运行检测' }}
+              </button>
+              <button
+                v-if="store.anomalyResult"
+                class="text-slate-500 hover:text-slate-300"
+                @click="store.clearAnomalyResult()"
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Forbidden Area Multi-Select -->
+          <div v-if="store.forbiddenAreas.length > 0" class="rounded-md bg-slate-900/30 border border-slate-700/30 p-2.5">
+            <label class="text-[10px] text-slate-500 font-medium block mb-2">禁入区告警（可选）</label>
+            <div class="space-y-1.5">
+              <div v-for="area in store.forbiddenAreas" :key="area.id" class="flex items-center gap-2">
+                <input
+                  :id="`area-${area.id}`"
+                  type="checkbox"
+                  :checked="store.selectedForbiddenAreaIds.includes(area.id)"
+                  class="w-3.5 h-3.5 rounded border border-slate-600 cursor-pointer"
+                  @change="store.toggleForbiddenArea(area.id)"
+                />
+                <label :for="`area-${area.id}`" class="flex items-center gap-1.5 cursor-pointer flex-1">
+                  <div class="w-2 h-2 rounded border" :style="{borderColor: area.color}"></div>
+                  <span class="text-[10px] text-slate-300">{{ area.name }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="text-[9px] text-slate-500 mt-2">
+              支持多选，运行检测会对所有选中禁区进行检测
+            </div>
+          </div>
+
+          <div v-if="store.anomalyResult" class="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+            <div class="grid grid-cols-4 gap-2 mb-3">
+              <div class="rounded-md bg-slate-800/60 p-2 text-center">
+                <div class="text-sm font-mono font-semibold text-rose-300">{{ store.anomalyResult.event_count }}</div>
+                <div class="text-[10px] text-slate-500">总告警</div>
+              </div>
+              <div class="rounded-md bg-slate-800/60 p-2 text-center">
+                <div class="text-sm font-mono font-semibold text-rose-300">{{ Number(store.anomalyResult.severity_count?.high || 0) }}</div>
+                <div class="text-[10px] text-slate-500">高风险</div>
+              </div>
+              <div class="rounded-md bg-slate-800/60 p-2 text-center">
+                <div class="text-sm font-mono font-semibold text-amber-300">{{ Number(store.anomalyResult.severity_count?.medium || 0) }}</div>
+                <div class="text-[10px] text-slate-500">中风险</div>
+              </div>
+              <div class="rounded-md bg-slate-800/60 p-2 text-center">
+                <div class="text-sm font-mono font-semibold text-sky-300">{{ Number(store.anomalyResult.severity_count?.low || 0) }}</div>
+                <div class="text-[10px] text-slate-500">低风险</div>
+              </div>
+            </div>
+
+            <div v-if="store.anomalyResult.events.length === 0" class="text-[11px] text-slate-400">
+              当前时段未检出异常事件。
+            </div>
+            <div v-else class="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <div
+                v-for="ev in store.anomalyResult.events"
+                :key="ev.event_id"
+                class="rounded-md border border-slate-700/40 bg-slate-900/40 p-2.5"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[11px] font-medium text-slate-200">{{ formatAnomalyType(ev.event_type) }}</span>
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px]"
+                    :class="anomalySeverityClass(ev.severity)"
+                  >
+                    {{ anomalySeverityLabel(ev.severity) }}
+                  </span>
+                </div>
+                <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                  <span>告警分数</span>
+                  <span class="font-mono text-slate-300">{{ ev.score.toFixed(3) }}</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                  <span>时间</span>
+                  <span class="font-mono text-slate-300">{{ ev.start_time }}</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                  <span>位置</span>
+                  <span class="font-mono text-slate-300">
+                    {{ ev.position.lon.toFixed(4) }}°E, {{ ev.position.lat.toFixed(4) }}°N
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3 text-[11px] text-slate-500">
+            选择船舶并设置时间范围后，点击“运行检测”即可生成告警列表。
+          </div>
         </div>
 
         <!-- Area Detection Result -->

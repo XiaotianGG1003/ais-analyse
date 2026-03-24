@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Ship, TrackStatistics, AreaDetectionResult, DistanceResultData, PredictionResultData } from '@/types'
+import type { Ship, TrackStatistics, AreaDetectionResult, DistanceResultData, PredictionResultData, ForbiddenArea } from '@/types'
 import { MOCK_SHIPS } from '@/data/mockData'
 import * as api from '@/api'
 import type { ManualTrackPoint, SimilarTrackItemData } from '@/api'
 import type { PortAnalysisResponse, PortItem } from '@/api'
 import type { CompanionPair, CompanionGroup } from '@/api'
+import type { AnomalyDetectionResponseData } from '@/api'
 
 // 固定调色板，给从后端加载的船舶分配颜色
 const PALETTE = [
@@ -96,6 +97,12 @@ export const useAppStore = defineStore('app', () => {
   const areaDrawMode = ref(false)
   const areaDetectionResult = ref<AreaDetectionResult | null>(null)
 
+  // Forbidden area management
+  const forbiddenAreas = ref<ForbiddenArea[]>([])
+  const forbiddenAreaDrawMode = ref(false)
+  const selectedForbiddenAreaIds = ref<string[]>([])
+  const newForbiddenAreaName = ref('')
+
   // Distance calculation
   const distanceShipA = ref<number | null>(null)
   const distanceShipB = ref<number | null>(null)
@@ -169,6 +176,9 @@ export const useAppStore = defineStore('app', () => {
     data: any
   } | null>(null)
 
+  // Anomaly Detection
+  const anomalyResult = ref<AnomalyDetectionResponseData | null>(null)
+
   // Ports
   const ports = ref<PortItem[]>([])
   const selectedPortId = ref<number | null>(null)
@@ -232,6 +242,7 @@ export const useAppStore = defineStore('app', () => {
     areaDetectionResult.value = null
     distanceResult.value = null
     predictionResult.value = null
+    anomalyResult.value = null
     similarTracksResult.value = []
     similarQueryInfo.value = null
     stopDetectionResult.value = null
@@ -520,6 +531,86 @@ export const useAppStore = defineStore('app', () => {
     } catch (e: unknown) {
       showToast('轨迹预测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
     }
+  }
+
+  /** 异常检测（高优先级规则） */
+  async function fetchAnomalies() {
+    const ship = selectedShip.value
+    if (!ship || !timeStart.value || !timeEnd.value) {
+      showToast('请先选择船舶并设置时间范围', 'warning')
+      return
+    }
+
+    showToast(`正在检测 ${ship.vessel_name} 的异常模式…`, 'info')
+    try {
+      // 获取选中的禁区列表
+      const selectedAreas = forbiddenAreas.value.filter((a) => selectedForbiddenAreaIds.value.includes(a.id))
+      
+      const res = await api.detectAnomalies({
+        mmsi: ship.mmsi,
+        start_time: timeStart.value + ':00Z',
+        end_time: timeEnd.value + ':00Z',
+        forbidden_areas: selectedAreas.length > 0 ? selectedAreas.map((a) => a.geometry) : undefined,
+      })
+
+      anomalyResult.value = res
+      activeRightTab.value = 'analysis'
+
+      if (res.event_count > 0) {
+        const highCount = Number(res.severity_count?.high || 0)
+        showToast(`检测到 ${res.event_count} 条告警（高风险 ${highCount} 条）`, highCount > 0 ? 'warning' : 'success')
+      } else {
+        showToast('未检测到异常告警', 'success')
+      }
+    } catch (e: unknown) {
+      showToast('异常检测失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function clearAnomalyResult() {
+    anomalyResult.value = null
+  }
+
+  /** 禁区管理 */
+  function addForbiddenArea(name: string, geometry: GeoJSON.Polygon, color: string = '#FF0000') {
+    const id = `area_${Date.now()}`
+    const area: ForbiddenArea = {
+      id,
+      name,
+      geometry,
+      createdAt: new Date().toISOString(),
+      color,
+    }
+    forbiddenAreas.value.push(area)
+    newForbiddenAreaName.value = ''
+    showToast(`禁区 "${name}" 已创建`, 'success')
+    return area
+  }
+
+  function deleteForbiddenArea(id: string) {
+    const idx = forbiddenAreas.value.findIndex((a) => a.id === id)
+    if (idx >= 0) {
+      const name = forbiddenAreas.value[idx].name
+      forbiddenAreas.value.splice(idx, 1)
+      // 从选中列表中移除
+      selectedForbiddenAreaIds.value = selectedForbiddenAreaIds.value.filter((aid) => aid !== id)
+      showToast(`禁区 "${name}" 已删除`, 'success')
+    }
+  }
+
+  function toggleForbiddenArea(id: string) {
+    const idx = selectedForbiddenAreaIds.value.indexOf(id)
+    if (idx >= 0) {
+      selectedForbiddenAreaIds.value.splice(idx, 1)
+    } else {
+      selectedForbiddenAreaIds.value.push(id)
+    }
+  }
+
+  function clearAllForbiddenAreas() {
+    forbiddenAreas.value = []
+    selectedForbiddenAreaIds.value = []
+    showToast('所有禁区已清除', 'success')
   }
 
   async function fetchPredictionFromPoints(points: ManualTrackPoint[], durationMinutes = 60, stepSeconds = 60) {
@@ -898,6 +989,7 @@ export const useAppStore = defineStore('app', () => {
       areaDetectionResult.value = null
       distanceResult.value = null
       predictionResult.value = null
+      anomalyResult.value = null
       rightPanelOpen.value = true
       activeRightTab.value = 'detail'
       showToast(`已加载 ${ship.vessel_name} 详情`, 'success')
@@ -1009,6 +1101,10 @@ export const useAppStore = defineStore('app', () => {
     activeRightTab,
     areaDrawMode,
     areaDetectionResult,
+    forbiddenAreas,
+    forbiddenAreaDrawMode,
+    selectedForbiddenAreaIds,
+    newForbiddenAreaName,
     distanceShipA,
     distanceShipB,
     distanceResult,
@@ -1020,6 +1116,7 @@ export const useAppStore = defineStore('app', () => {
     animationData,
     cpaResult,
     densityResult,
+    anomalyResult,
     simplifyResult,
     simplifyComparison,
     companionResult,
@@ -1039,6 +1136,7 @@ export const useAppStore = defineStore('app', () => {
     fetchAreaDetection,
     fetchDistance,
     fetchPrediction,
+    fetchAnomalies,
     fetchPredictionFromPoints,
     fetchSimilarTracksFromPoints,
     fetchStopDetection,
@@ -1050,6 +1148,11 @@ export const useAppStore = defineStore('app', () => {
     fetchCPA,
     fetchDensityAnalysis,
     clearDensityResult,
+    clearAnomalyResult,
+    addForbiddenArea,
+    deleteForbiddenArea,
+    toggleForbiddenArea,
+    clearAllForbiddenAreas,
     fetchSimplifiedTrajectory,
     fetchSimplificationComparison,
     clearSimplifyResult,

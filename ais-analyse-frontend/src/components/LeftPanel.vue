@@ -32,6 +32,7 @@ const companionTimeRange = ref<'custom'>('custom')
 const companionStartTime = ref('')
 const companionEndTime = ref('')
 const companionLoading = ref(false)
+const forbiddenAreaPanelOpen = ref(false)
 const importDrawerOpen = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
@@ -227,6 +228,29 @@ async function onAnalyzePort(portId: number) {
 function onSelectPort(portId: number) {
   store.selectPort(portId)
   emit('locatePort', portId)
+}
+
+// Forbidden Area Management
+function onToggleForbiddenAreaDraw() {
+  if (!store.newForbiddenAreaName.trim()) {
+    store.showToast('请先输入禁区名称', 'warning')
+    return
+  }
+  store.forbiddenAreaDrawMode = !store.forbiddenAreaDrawMode
+}
+
+function onDeleteForbiddenArea(areaId: string) {
+  const area = store.forbiddenAreas.find((a) => a.id === areaId)
+  if (!area) return
+  const ok = window.confirm(`确认删除禁区 "${area.name}" 吗？`)
+  if (!ok) return
+  store.deleteForbiddenArea(areaId)
+}
+
+function onClearAllForbiddenAreas() {
+  const ok = window.confirm('确认删除所有禁区吗？无法撤销！')
+  if (!ok) return
+  store.clearAllForbiddenAreas()
 }
 
 async function onAnalyzeDensity(type: 'heatmap' | 'corridors' | 'speed') {
@@ -821,6 +845,79 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="store.ports.length === 0" class="px-2 py-3 text-[11px] text-slate-500 text-center">
             暂无港口，请先绘制矩形新增
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Forbidden Area Management -->
+    <div class="px-4 py-3 border-b border-slate-700/20">
+      <button
+        class="w-full flex items-center justify-between text-xs text-slate-500 font-medium mb-2"
+        @click="forbiddenAreaPanelOpen = !forbiddenAreaPanelOpen"
+      >
+        <span>禁区管理</span>
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" :class="forbiddenAreaPanelOpen ? 'rotate-180' : ''">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div v-if="forbiddenAreaPanelOpen" class="space-y-2">
+        <div class="flex items-center gap-2">
+          <input
+            v-model="store.newForbiddenAreaName"
+            type="text"
+            placeholder="输入禁区名称"
+            class="flex-1 text-xs py-1.5 px-2 rounded-md border border-slate-700 outline-none focus:border-rose-500"
+            style="background: #1a2332; color: #e2e8f0"
+          />
+          <button
+            :disabled="store.forbiddenAreaDrawMode"
+            :class="store.forbiddenAreaDrawMode ? 'bg-rose-600/50 border-rose-600 text-rose-300' : 'border-rose-500/40 text-rose-300 hover:bg-rose-500/10'"
+            class="shrink-0 px-2 py-1.5 text-xs font-medium rounded-md border transition"
+            @click="onToggleForbiddenAreaDraw"
+            title="在地图上绘制矩形禁区"
+          >
+            {{ store.forbiddenAreaDrawMode ? '绘制中...' : '绘制' }}
+          </button>
+          <button
+            v-if="store.forbiddenAreas.length > 0"
+            class="shrink-0 px-2 py-1.5 text-xs font-medium rounded-md border border-slate-600 text-slate-300 hover:bg-slate-700/50 transition"
+            @click="onClearAllForbiddenAreas"
+            title="清除所有禁区"
+          >
+            清空
+          </button>
+        </div>
+        <div class="max-h-44 overflow-y-auto rounded-md border border-slate-700/50">
+          <div
+            v-for="area in store.forbiddenAreas"
+            :key="area.id"
+            class="px-2 py-2 border-b border-slate-700/40 last:border-b-0 cursor-pointer transition"
+            :class="store.selectedForbiddenAreaIds.includes(area.id) ? 'bg-rose-500/10' : 'bg-slate-900/40 hover:bg-slate-900/60'"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <button
+                class="text-left flex-1"
+                @click="store.toggleForbiddenArea(area.id)"
+              >
+                <div class="flex items-center gap-1.5">
+                  <div class="w-3 h-3 rounded border-2" :style="{borderColor: area.color}"></div>
+                  <div class="text-xs text-slate-200">{{ area.name }}</div>
+                </div>
+                <div class="text-[10px] text-slate-500 ml-4">
+                  {{ new Date(area.createdAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }}
+                </div>
+              </button>
+              <button
+                class="shrink-0 px-2 py-1 text-[10px] rounded border border-rose-500/40 text-rose-400 hover:bg-rose-500/10"
+                @click="onDeleteForbiddenArea(area.id)"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+          <div v-if="store.forbiddenAreas.length === 0" class="px-2 py-3 text-[11px] text-slate-500 text-center">
+            暂无禁区，请先绘制
           </div>
         </div>
       </div>

@@ -60,6 +60,14 @@ export interface PredictionResultData {
   method: string
 }
 
+export interface ForbiddenArea {
+  id: string
+  name: string
+  geometry: GeoJSON.Polygon
+  createdAt: string
+  color: string
+}
+
 export type ToastType = 'success' | 'warning' | 'info' | 'error'
 
 export const VESSEL_TYPES: Record<number, string> = {

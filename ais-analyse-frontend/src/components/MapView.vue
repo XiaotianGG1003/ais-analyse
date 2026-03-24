@@ -28,6 +28,8 @@ let densityLayer: L.LayerGroup | null = null
 let portsLayer: L.LayerGroup | null = null
 let simplifyLayer: L.LayerGroup | null = null
 let companionLayer: L.LayerGroup | null = null
+let forbiddenAreasLayer: L.LayerGroup | null = null
+let forbiddenAreaRect: L.Rectangle | null = null
 let creatingPort = false
 let createPortName = ''
 let drawnItems: L.FeatureGroup
@@ -1523,6 +1525,127 @@ function clearCompanions() {
   }
 }
 
+// Forbidden Areas
+function renderForbiddenAreas() {
+  clearForbiddenAreas()
+  
+  if (!map || store.forbiddenAreas.length === 0) return
+  
+  forbiddenAreasLayer = L.layerGroup()
+  
+  for (const area of store.forbiddenAreas) {
+    const coords = area.geometry.coordinates[0]
+    const latlngs = coords.map((c: number[]) => [c[1], c[0]] as L.LatLngExpression)
+    
+    const isSelected = store.selectedForbiddenAreaIds.includes(area.id)
+    
+    forbiddenAreasLayer!.addLayer(
+      L.polygon(latlngs, {
+        color: isSelected ? '#FFD700' : area.color,
+        weight: isSelected ? 3 : 2,
+        opacity: 0.7,
+        fill: true,
+        fillColor: area.color,
+        fillOpacity: 0.2,
+      }).bindPopup(`<strong>${area.name}</strong><br/>禁区`, { closeButton: true })
+    )
+  }
+  
+  forbiddenAreasLayer.addTo(map)
+}
+
+function clearForbiddenAreas() {
+  if (forbiddenAreasLayer) {
+    map.removeLayer(forbiddenAreasLayer)
+    forbiddenAreasLayer = null
+  }
+  forbiddenAreaRect = null
+}
+
+function startForbiddenAreaDraw() {
+  if (!map) return
+  
+  // 禁用地图拖动，启用矩形绘制
+  map.dragging.disable()
+  isDrawing = true
+  map.once('mousedown', onForbiddenAreaDrawStart)
+}
+
+function cancelForbiddenAreaDraw() {
+  if (!map) return
+  
+  map.dragging.enable()
+  isDrawing = false
+  forbiddenAreaRect = null
+  map.off('mousedown', onForbiddenAreaDrawStart)
+  map.off('mousemove', onForbiddenAreaDrawMove)
+}
+
+let forbiddenAreaStartPoint: L.LatLng | null = null
+
+function onForbiddenAreaDrawStart(e: L.LeafletMouseEvent) {
+  if (!map) return
+  
+  forbiddenAreaStartPoint = e.latlng
+  forbiddenAreaRect = L.rectangle([[forbiddenAreaStartPoint.lat, forbiddenAreaStartPoint.lng], [forbiddenAreaStartPoint.lat, forbiddenAreaStartPoint.lng]], {
+    color: '#FF6B6B',
+    weight: 2,
+    opacity: 0.7,
+    fill: true,
+    fillColor: '#FF6B6B',
+    fillOpacity: 0.2,
+  }).addTo(map)
+  
+  map.on('mousemove', onForbiddenAreaDrawMove)
+  map.once('mouseup', onForbiddenAreaDrawEnd)
+}
+
+function onForbiddenAreaDrawMove(e: L.LeafletMouseEvent) {
+  if (!forbiddenAreaRect || !forbiddenAreaStartPoint) return
+  
+  const bounds = L.latLngBounds(forbiddenAreaStartPoint, e.latlng)
+  forbiddenAreaRect.setBounds(bounds)
+}
+
+function onForbiddenAreaDrawEnd() {
+  if (!map || !forbiddenAreaRect || !forbiddenAreaStartPoint) return
+  
+  map.off('mousemove', onForbiddenAreaDrawMove)
+  map.removeLayer(forbiddenAreaRect)
+  
+  const bounds = forbiddenAreaRect.getBounds()
+  const southwest = bounds.getSouthWest()
+  const northeast = bounds.getNorthEast()
+  
+  // 创建 GeoJSON Polygon
+  const polygon: GeoJSON.Polygon = {
+    type: 'Polygon',
+    coordinates: [[
+      [southwest.lng, southwest.lat],
+      [northeast.lng, southwest.lat],
+      [northeast.lng, northeast.lat],
+      [southwest.lng, northeast.lat],
+      [southwest.lng, southwest.lat],
+    ]],
+  }
+  
+  // 添加到 store
+  if (store.newForbiddenAreaName.trim()) {
+    store.addForbiddenArea(store.newForbiddenAreaName, polygon, '#FF6B6B')
+  } else {
+    store.showToast('请输入禁区名称', 'warning')
+  }
+  
+  // 停止绘制模式
+  store.forbiddenAreaDrawMode = false
+  map.dragging.enable()
+  isDrawing = false
+  forbiddenAreaRect = null
+  forbiddenAreaStartPoint = null
+  
+  renderForbiddenAreas()
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
@@ -1669,6 +1792,25 @@ watch(
 )
 
 watch(
+  () => store.forbiddenAreas,
+  () => {
+    renderForbiddenAreas()
+  },
+  { deep: true },
+)
+
+watch(
+  () => store.forbiddenAreaDrawMode,
+  (drawMode) => {
+    if (drawMode) {
+      startForbiddenAreaDraw()
+    } else {
+      cancelForbiddenAreaDraw()
+    }
+  },
+)
+
+watch(
   () => store.selectedPortId,
   (portId) => {
     renderPorts()
@@ -1692,6 +1834,7 @@ onMounted(async () => {
   await store.fetchShips()
   await store.fetchPorts()
   renderPorts()
+  renderForbiddenAreas()
   await setDefaultViewFromTrajectoryExtent()
   await setDefaultViewFromTrajectoryExtent()
 })

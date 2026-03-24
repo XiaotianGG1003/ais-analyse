@@ -117,6 +117,39 @@ export interface SimilarTracksResponseData {
   tracks: SimilarTrackItemData[]
 }
 
+export interface AnomalyDetectionRequestData {
+  mmsi: number
+  start_time: string
+  end_time: string
+  speed_threshold_knots?: number
+  turn_rate_threshold_deg_per_min?: number
+  stop_speed_threshold_knots?: number
+  stop_min_minutes?: number
+  stop_radius_m?: number
+  forbidden_areas?: Record<string, unknown>[]
+}
+
+export interface AnomalyEventData {
+  event_id: string
+  event_type: string
+  severity: 'high' | 'medium' | 'low'
+  score: number
+  start_time: string
+  end_time: string
+  position: { lon: number; lat: number }
+  evidence: Record<string, unknown>
+}
+
+export interface AnomalyDetectionResponseData {
+  mmsi: number
+  start_time: string
+  end_time: string
+  event_count: number
+  severity_count: Record<string, number>
+  type_count: Record<string, number>
+  events: AnomalyEventData[]
+}
+
 export interface PredictorAssetsStatusData {
   ready: boolean
   sample_pkl_exists: boolean
@@ -230,6 +263,13 @@ export function getSimilarTracksFromPoints(points: ManualTrackPoint[], topK = 5)
   return request<SimilarTracksResponseData>(`/analysis/similar-tracks`, {
     method: 'POST',
     body: JSON.stringify({ points, top_k: topK }),
+  })
+}
+
+export function detectAnomalies(body: AnomalyDetectionRequestData) {
+  return request<AnomalyDetectionResponseData>(`/anomalies/detect`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }
 
