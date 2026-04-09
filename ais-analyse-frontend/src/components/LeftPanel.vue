@@ -26,6 +26,8 @@ const densityCustomEnd = ref('')
 const simplifyPanelOpen = ref(false)
 const simplifyTolerance = ref(100)
 const companionPanelOpen = ref(false)
+const azimuthPanelOpen = ref(false)
+const azimuthTurnThreshold = ref(5.0)  // 转向检测阈值 (度/分钟)
 const companionMaxDistance = ref(2.0)  // 海里
 const companionMinDuration = ref(30)   // 分钟
 const companionTimeRange = ref<'custom'>('custom')
@@ -301,6 +303,26 @@ function onToggleCompanion() {
     companionStartTime.value = store.timeStart
     companionEndTime.value = store.timeEnd
   }
+}
+
+function onToggleAzimuth() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  azimuthPanelOpen.value = !azimuthPanelOpen.value
+}
+
+async function onAnalyzeAzimuth() {
+  if (!store.selectedShip) {
+    store.showToast('请先选择船舶', 'warning')
+    return
+  }
+  await store.fetchAzimuthAnalysis(store.selectedShip.mmsi, azimuthTurnThreshold.value)
+}
+
+function onClearAzimuthResult() {
+  store.clearAzimuthResult()
 }
 
 async function onDetectCompanions() {
@@ -757,6 +779,18 @@ onBeforeUnmount(() => {
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
           停留点检测
+        </button>
+        <button
+          class="text-xs py-2 px-2 bg-navy-600 border border-slate-700 text-slate-300 rounded-md flex items-center justify-center gap-1.5 hover:bg-navy-500 transition"
+          @click="onToggleAzimuth"
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M12 12v10" />
+            <path d="M12 2v5" />
+          </svg>
+          航向分析
         </button>
 
         <button
@@ -1640,6 +1674,122 @@ onBeforeUnmount(() => {
           v-if="store.companionResult"
           class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
           @click="store.clearCompanionResult()"
+        >
+          清除结果
+        </button>
+      </div>
+    </div>
+
+    <!-- Azimuth/Heading Analysis Panel -->
+    <div v-if="azimuthPanelOpen" class="px-4 py-3 border-b border-slate-700/20">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs text-slate-500 font-medium">航向/方位角分析</label>
+        <button class="text-slate-500 hover:text-slate-300" @click="azimuthPanelOpen = false">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div class="text-xs text-slate-400">
+          <p>分析船舶航向变化，检测转向事件</p>
+          <p v-if="store.selectedShip" class="mt-1 text-ocean-400">
+            船舶: {{ store.selectedShip.vessel_name }}
+          </p>
+        </div>
+        
+        <!-- 转向检测阈值 -->
+        <div>
+          <span class="text-[10px] text-slate-500 mb-1 block">转向检测阈值: {{ azimuthTurnThreshold }} 度/分钟</span>
+          <input
+            v-model.number="azimuthTurnThreshold"
+            type="range"
+            min="1"
+            max="20"
+            step="1"
+            class="w-full"
+          />
+          <div class="flex justify-between text-[10px] text-slate-600">
+            <span>1°/min (灵敏)</span>
+            <span>20°/min (严格)</span>
+          </div>
+        </div>
+        
+        <!-- 分析按钮 -->
+        <button
+          class="w-full py-1.5 text-xs font-medium text-white rounded-md"
+          style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+          @click="onAnalyzeAzimuth"
+        >
+          分析航向
+        </button>
+        
+        <!-- 结果显示 -->
+        <div v-if="store.azimuthResult" class="mt-3 space-y-2">
+          <div class="text-xs font-medium text-slate-300">
+            {{ store.azimuthResult.vessel_name }} 的航向分析
+          </div>
+          
+          <!-- 统计信息 -->
+          <div class="grid grid-cols-2 gap-2 text-[10px]">
+            <div class="p-2 bg-navy-600/50 rounded-md">
+              <div class="text-slate-500">平均航向</div>
+              <div class="text-ocean-400 font-medium">{{ store.azimuthResult.avg_heading.toFixed(1) }}°</div>
+            </div>
+            <div class="p-2 bg-navy-600/50 rounded-md">
+              <div class="text-slate-500">航向标准差</div>
+              <div class="text-ocean-400 font-medium">{{ store.azimuthResult.heading_std.toFixed(1) }}°</div>
+            </div>
+            <div class="p-2 bg-navy-600/50 rounded-md">
+              <div class="text-slate-500">航向范围</div>
+              <div class="text-ocean-400 font-medium">{{ store.azimuthResult.min_heading.toFixed(0) }}° - {{ store.azimuthResult.max_heading.toFixed(0) }}°</div>
+            </div>
+            <div class="p-2 bg-navy-600/50 rounded-md">
+              <div class="text-slate-500">总转向角度</div>
+              <div class="text-ocean-400 font-medium">{{ store.azimuthResult.total_turn_angle.toFixed(0) }}°</div>
+            </div>
+          </div>
+          
+          <!-- 转向事件 -->
+          <div v-if="store.azimuthResult.turn_events.length > 0" class="space-y-1">
+            <div class="text-[10px] text-slate-500">转向事件 ({{ store.azimuthResult.turn_events.length }}个):</div>
+            <div class="max-h-[150px] overflow-y-auto space-y-1">
+              <div
+                v-for="(event, idx) in store.azimuthResult.turn_events.slice(0, 5)"
+                :key="idx"
+                class="p-2 bg-navy-600/30 rounded-md"
+              >
+                <div class="flex justify-between text-xs">
+                  <span class="text-slate-300">
+                    {{ new Date(event.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}
+                  </span>
+                  <span 
+                    class="font-medium"
+                    :class="event.turn_angle > 0 ? 'text-emerald-400' : 'text-rose-400'"
+                  >
+                    {{ event.turn_angle > 0 ? '右转' : '左转' }} {{ Math.abs(event.turn_angle).toFixed(0) }}°
+                  </span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-0.5">
+                  速率: {{ event.turn_rate.toFixed(1) }}°/min
+                </div>
+              </div>
+              <div v-if="store.azimuthResult.turn_events.length > 5" class="text-[10px] text-slate-500 text-center">
+                还有 {{ store.azimuthResult.turn_events.length - 5 }} 个转向事件...
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-[10px] text-slate-500">
+            未检测到明显转向事件
+          </div>
+        </div>
+        
+        <!-- 清除按钮 -->
+        <button
+          v-if="store.azimuthResult"
+          class="w-full py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md"
+          @click="onClearAzimuthResult"
         >
           清除结果
         </button>

@@ -19,6 +19,9 @@ from app.routers import (
     companions,
     ports,
     anomalies,
+    azimuth,
+    btree,
+    btree_compare,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -62,6 +65,9 @@ app.include_router(simplify.router)
 app.include_router(companions.router)
 app.include_router(ports.router)
 app.include_router(anomalies.router)
+app.include_router(azimuth.router)
+app.include_router(btree.router)
+app.include_router(btree_compare.router)
 
 
 @app.get("/health", tags=["system"])

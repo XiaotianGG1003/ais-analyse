@@ -218,6 +218,39 @@ export const useAppStore = defineStore('app', () => {
   
   const selectedCompanionPair = ref<CompanionPair | null>(null)
 
+  // Azimuth/Heading Analysis
+  const azimuthResult = ref<{
+    mmsi: number
+    vessel_name: string | null
+    start_time: string
+    end_time: string
+    point_count: number
+    min_heading: number
+    max_heading: number
+    avg_heading: number
+    heading_std: number
+    total_turn_angle: number
+    turn_events: api.TurnEvent[]
+    heading_series: api.HeadingDataPoint[]
+  } | null>(null)
+  
+  const relativeBearingResult = ref<{
+    mmsi_a: number
+    vessel_name_a: string | null
+    mmsi_b: number
+    vessel_name_b: string | null
+    bearing_series: { timestamp: string; bearing: number | null }[]
+    avg_bearing: number
+    min_bearing: number
+    max_bearing: number
+  } | null>(null)
+  
+  const headingDistributionResult = ref<{
+    grid_size: number
+    total_cells: number
+    heading_data: api.HeadingCellData[]
+  } | null>(null)
+
   // Toast
   const toasts = ref<{ id: number; message: string; type: string }[]>([])
   let toastId = 0
@@ -890,6 +923,78 @@ export const useAppStore = defineStore('app', () => {
     selectedCompanionPair.value = null
   }
 
+  /** 航向分析 */
+  async function fetchAzimuthAnalysis(mmsi: number, turnThreshold = 5.0) {
+    const ship = ships.value.find((s) => s.mmsi === mmsi)
+    if (!ship) {
+      showToast('请选择有效的船舶', 'warning')
+      return
+    }
+    showToast(`正在分析 ${ship.vessel_name} 的航向变化…`, 'info')
+    try {
+      const res = await api.analyzeAzimuth(
+        mmsi,
+        timeStart.value ? new Date(timeStart.value).toISOString() : undefined,
+        timeEnd.value ? new Date(timeEnd.value).toISOString() : undefined,
+        turnThreshold,
+      )
+      azimuthResult.value = res
+      activeRightTab.value = 'analysis'
+      showToast(`航向分析完成：检测到 ${res.turn_events.length} 个转向事件`, 'success')
+    } catch (e: unknown) {
+      showToast('航向分析失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function clearAzimuthResult() {
+    azimuthResult.value = null
+  }
+
+  /** 相对方位分析 */
+  async function fetchRelativeBearing(mmsiA: number, mmsiB: number) {
+    const shipA = ships.value.find((s) => s.mmsi === mmsiA)
+    const shipB = ships.value.find((s) => s.mmsi === mmsiB)
+    if (!shipA || !shipB) {
+      showToast('请选择两艘有效的船舶', 'warning')
+      return
+    }
+    showToast(`正在分析 ${shipA.vessel_name} 与 ${shipB.vessel_name} 的相对方位…`, 'info')
+    try {
+      const res = await api.getRelativeBearing(
+        mmsiA,
+        mmsiB,
+        timeStart.value ? new Date(timeStart.value).toISOString() : undefined,
+        timeEnd.value ? new Date(timeEnd.value).toISOString() : undefined,
+      )
+      relativeBearingResult.value = res
+      activeRightTab.value = 'analysis'
+      showToast(`相对方位分析完成`, 'success')
+    } catch (e: unknown) {
+      showToast('相对方位分析失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
+  function clearRelativeBearingResult() {
+    relativeBearingResult.value = null
+  }
+
+  /** 区域航向分布 */
+  async function fetchHeadingDistribution(gridSize = 0.05) {
+    showToast('正在生成区域航向分布…', 'info')
+    try {
+      const res = await api.getHeadingDistribution(
+        timeStart.value ? new Date(timeStart.value).toISOString() : undefined,
+        timeEnd.value ? new Date(timeEnd.value).toISOString() : undefined,
+        gridSize,
+      )
+      headingDistributionResult.value = res
+      activeRightTab.value = 'analysis'
+      showToast(`航向分布分析完成：${res.total_cells} 个网格`, 'success')
+    } catch (e: unknown) {
+      showToast('航向分布分析失败: ' + (e instanceof Error ? e.message : '未知错误'), 'error')
+    }
+  }
+
   /** 停留点检测 */
   async function fetchStopDetection(distanceThreshold: number, timeThreshold: number) {
     const ship = selectedShip.value
@@ -1121,6 +1226,9 @@ export const useAppStore = defineStore('app', () => {
     simplifyComparison,
     companionResult,
     selectedCompanionPair,
+    azimuthResult,
+    relativeBearingResult,
+    headingDistributionResult,
     ports,
     selectedPortId,
     selectedPort,
@@ -1159,6 +1267,11 @@ export const useAppStore = defineStore('app', () => {
     detectCompanions,
     selectCompanionPair,
     clearCompanionResult,
+    fetchAzimuthAnalysis,
+    clearAzimuthResult,
+    fetchRelativeBearing,
+    clearRelativeBearingResult,
+    fetchHeadingDistribution,
     fetchPorts,
     selectPort,
     createPortByBBox,

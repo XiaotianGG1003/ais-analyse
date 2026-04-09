@@ -205,7 +205,7 @@ function renderSOGDistChart() {
   })
 }
 
-function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' | 'stops' | 'cpa' | 'port') {
+function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' | 'stops' | 'cpa' | 'port' | 'azimuth') {
   if (item === 'area') store.areaDetectionResult = null
   if (item === 'distance') store.distanceResult = null
   if (item === 'prediction') store.predictionResult = null
@@ -216,6 +216,7 @@ function clearAnalysisItem(item: 'area' | 'distance' | 'prediction' | 'similar' 
   if (item === 'stops') store.stopDetectionResult = null
   if (item === 'cpa') store.cpaResult = null
   if (item === 'port') store.portAnalysisResult = null
+  if (item === 'azimuth') store.clearAzimuthResult()
 }
 
 function formatAnomalyType(eventType: string) {
@@ -258,6 +259,7 @@ const hasAnalysis = () =>
   ||
   store.areaDetectionResult
   || store.distanceResult
+  || store.azimuthResult
   || store.predictionResult
   || store.similarTracksResult.length > 0
   || store.stopDetectionResult
@@ -1241,6 +1243,87 @@ onUnmounted(() => {
               <div class="text-[10px] font-mono text-slate-400">
                 B: {{ store.cpaResult.positionB.lon.toFixed(4) }}°E, {{ store.cpaResult.positionB.lat.toFixed(4) }}°N
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Azimuth/Heading Analysis Result -->
+        <div v-if="store.azimuthResult" class="space-y-3 mt-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M12 12v10" />
+                <path d="M12 2v5" />
+              </svg>
+              航向分析结果
+            </h4>
+            <button
+              class="text-slate-500 hover:text-slate-300"
+              @click="clearAnalysisItem('azimuth')"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          
+          <div class="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+            <div class="text-sm font-medium text-amber-400 mb-2">{{ store.azimuthResult.vessel_name }}</div>
+            
+            <!-- 统计信息 -->
+            <div class="grid grid-cols-2 gap-2 mb-3">
+              <div class="rounded-md bg-slate-800/50 p-2 text-center">
+                <div class="text-lg font-bold font-mono text-amber-400">{{ store.azimuthResult.avg_heading.toFixed(1) }}°</div>
+                <div class="text-[9px] text-slate-500 mt-0.5">平均航向</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2 text-center">
+                <div class="text-lg font-bold font-mono text-slate-200">{{ store.azimuthResult.heading_std.toFixed(1) }}°</div>
+                <div class="text-[9px] text-slate-500 mt-0.5">航向标准差</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2 text-center">
+                <div class="text-lg font-bold font-mono text-slate-200">{{ store.azimuthResult.min_heading.toFixed(0) }}°-{{ store.azimuthResult.max_heading.toFixed(0) }}°</div>
+                <div class="text-[9px] text-slate-500 mt-0.5">航向范围</div>
+              </div>
+              <div class="rounded-md bg-slate-800/50 p-2 text-center">
+                <div class="text-lg font-bold font-mono text-ocean-400">{{ store.azimuthResult.total_turn_angle.toFixed(0) }}°</div>
+                <div class="text-[9px] text-slate-500 mt-0.5">总转向角度</div>
+              </div>
+            </div>
+            
+            <!-- 时间范围 -->
+            <div class="text-[10px] text-slate-500 mb-2">
+              分析时段: {{ new Date(store.azimuthResult.start_time).toLocaleString() }} - {{ new Date(store.azimuthResult.end_time).toLocaleTimeString() }}
+            </div>
+            
+            <!-- 转向事件 -->
+            <div v-if="store.azimuthResult.turn_events.length > 0" class="space-y-2">
+              <div class="text-[11px] font-medium text-slate-400">转向事件 ({{ store.azimuthResult.turn_events.length }}个)</div>
+              <div class="space-y-1.5 max-h-40 overflow-y-auto">
+                <div
+                  v-for="(event, index) in store.azimuthResult.turn_events"
+                  :key="index"
+                  class="rounded-md bg-slate-800/50 p-2 border-l-2"
+                  :class="event.turn_angle > 0 ? 'border-emerald-500' : 'border-rose-500'"
+                >
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-slate-300">#{{ index + 1 }} {{ new Date(event.timestamp).toLocaleTimeString() }}</span>
+                    <span 
+                      class="font-medium"
+                      :class="event.turn_angle > 0 ? 'text-emerald-400' : 'text-rose-400'"
+                    >
+                      {{ event.turn_angle > 0 ? '右转' : '左转' }} {{ Math.abs(event.turn_angle).toFixed(1) }}°
+                    </span>
+                  </div>
+                  <div class="text-[10px] text-slate-500 mt-0.5">
+                    航向: {{ event.heading_before.toFixed(0) }}° → {{ event.heading_after.toFixed(0) }}° | 速率: {{ event.turn_rate.toFixed(1) }}°/min
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-[11px] text-slate-500 text-center py-2">
+              未检测到明显转向事件
             </div>
           </div>
         </div>

@@ -832,3 +832,97 @@ export function getVesselCompanions(
   url += `&max_distance_nm=${maxDistanceNm}`
   return request<VesselCompanionsResponse>(url)
 }
+
+
+/* ---- Azimuth/Heading Analysis ---- */
+
+export interface HeadingDataPoint {
+  timestamp: string
+  heading: number
+  turn_rate: number | null
+}
+
+export interface TurnEvent {
+  timestamp: string
+  heading_before: number
+  heading_after: number
+  turn_angle: number
+  turn_rate: number
+  lat: number
+  lon: number
+}
+
+export interface AzimuthAnalysisResponse {
+  mmsi: number
+  vessel_name: string | null
+  start_time: string
+  end_time: string
+  point_count: number
+  min_heading: number
+  max_heading: number
+  avg_heading: number
+  heading_std: number
+  total_turn_angle: number
+  turn_events: TurnEvent[]
+  heading_series: HeadingDataPoint[]
+}
+
+export interface RelativeBearingResponse {
+  mmsi_a: number
+  vessel_name_a: string | null
+  mmsi_b: number
+  vessel_name_b: string | null
+  bearing_series: { timestamp: string; bearing: number | null }[]
+  avg_bearing: number
+  min_bearing: number
+  max_bearing: number
+}
+
+export interface HeadingCellData {
+  lon: number
+  lat: number
+  avg_heading: number | null
+  point_count: number
+  heading_std: number | null
+}
+
+export interface HeadingDistributionData {
+  grid_size: number
+  total_cells: number
+  heading_data: HeadingCellData[]
+}
+
+export function analyzeAzimuth(
+  mmsi: number,
+  startTime?: string,
+  endTime?: string,
+  turnThreshold = 5.0,
+) {
+  let url = `/azimuth/analyze/${mmsi}?turn_threshold=${turnThreshold}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<AzimuthAnalysisResponse>(url)
+}
+
+export function getRelativeBearing(
+  mmsiA: number,
+  mmsiB: number,
+  startTime?: string,
+  endTime?: string,
+) {
+  let url = `/azimuth/relative-bearing?mmsi_a=${mmsiA}&mmsi_b=${mmsiB}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<RelativeBearingResponse>(url)
+}
+
+export function getHeadingDistribution(
+  startTime?: string,
+  endTime?: string,
+  gridSize = 0.05,
+) {
+  let url = `/azimuth/vessels/heading-distribution?grid_size=${gridSize}`
+  if (startTime) url += `&start_time=${encodeURIComponent(startTime)}`
+  if (endTime) url += `&end_time=${encodeURIComponent(endTime)}`
+  return request<HeadingDistributionData>(url)
+}

@@ -30,6 +30,7 @@ let simplifyLayer: L.LayerGroup | null = null
 let companionLayer: L.LayerGroup | null = null
 let forbiddenAreasLayer: L.LayerGroup | null = null
 let forbiddenAreaRect: L.Rectangle | null = null
+let azimuthLayer: L.LayerGroup | null = null
 let creatingPort = false
 let createPortName = ''
 let drawnItems: L.FeatureGroup
@@ -1646,6 +1647,106 @@ function onForbiddenAreaDrawEnd() {
   renderForbiddenAreas()
 }
 
+// ---- Azimuth/Heading Analysis Visualization ----
+function renderAzimuthAnalysis() {
+  if (!store.azimuthResult) return
+  clearAzimuthLayer()
+  
+  azimuthLayer = L.layerGroup()
+  const result = store.azimuthResult
+  
+  // 获取船舶轨迹来绘制带航向颜色的轨迹线
+  const ship = store.selectedShip
+  if (ship && ship.track.length > 1) {
+    // 根据航向序列创建彩色轨迹线段
+    const headingSeries = result.heading_series
+    
+    for (let i = 0; i < headingSeries.length - 1; i++) {
+      const curr = headingSeries[i]
+      const next = headingSeries[i + 1]
+      
+      // 根据航向获取颜色（彩虹色谱）
+      const heading = curr.heading
+      const color = headingToColor(heading)
+      
+      // 找到对应的位置（简化处理：按时间比例估算）
+      const trackIndex = Math.floor((i / headingSeries.length) * (ship.track.length - 1))
+      const nextTrackIndex = Math.floor(((i + 1) / headingSeries.length) * (ship.track.length - 1))
+      
+      if (trackIndex < ship.track.length && nextTrackIndex < ship.track.length) {
+        const start = ship.track[trackIndex]
+        const end = ship.track[nextTrackIndex]
+        
+        L.polyline(
+          [[start[1], start[0]], [end[1], end[0]]],
+          { color, weight: 4, opacity: 0.8 }
+        ).addTo(azimuthLayer!)
+      }
+    }
+  }
+  
+  // 渲染转向事件标记
+  result.turn_events.forEach((event, index) => {
+    const isRightTurn = event.turn_angle > 0
+    const color = isRightTurn ? '#10B981' : '#EF4444'  // 右转绿色，左转红色
+    
+    const icon = L.divIcon({
+      html: `
+        <div style="
+          width: 24px; height: 24px; 
+          background: ${color}; 
+          border-radius: 50%; 
+          border: 2px solid white;
+          box-shadow: 0 0 8px ${color}88;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 10px; color: white; font-weight: bold;
+        ">${index + 1}</div>
+      `,
+      className: '',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    })
+    
+    const marker = L.marker([event.lat, event.lon], { icon }).addTo(azimuthLayer!)
+    
+    const turnType = isRightTurn ? '右转' : '左转'
+    marker.bindPopup(`
+      <div style="font-family: 'Inter', sans-serif; min-width: 180px;">
+        <div style="font-weight: 600; color: ${color}; margin-bottom: 4px;">转向点 #${index + 1}</div>
+        <div style="font-size: 11px; color: #374151;">时间: ${new Date(event.timestamp).toLocaleString()}</div>
+        <div style="font-size: 11px; color: #374151;">${turnType}: ${Math.abs(event.turn_angle).toFixed(1)}°</div>
+        <div style="font-size: 11px; color: #374151;">速率: ${event.turn_rate.toFixed(1)}°/min</div>
+        <div style="font-size: 10px; color: #6b7280; margin-top: 4px;">
+          航向: ${event.heading_before.toFixed(0)}° → ${event.heading_after.toFixed(0)}°
+        </div>
+      </div>
+    `)
+  })
+  
+  azimuthLayer.addTo(map)
+  
+  // 调整视野以显示所有转向点
+  if (result.turn_events.length > 0) {
+    const bounds: L.LatLngTuple[] = result.turn_events.map((e) => [e.lat, e.lon])
+    map.fitBounds(bounds, { padding: [80, 80] })
+  }
+}
+
+// 将航向角度转换为彩虹色
+function headingToColor(heading: number): string {
+  // 航向 0-360° 映射到色相 0-360 (红色到紫色)
+  // 0° (北) = 红色, 90° (东) = 黄色, 180° (南) = 青色, 270° (西) = 蓝色
+  const hue = heading
+  return `hsl(${hue}, 80%, 50%)`
+}
+
+function clearAzimuthLayer() {
+  if (azimuthLayer) {
+    map.removeLayer(azimuthLayer)
+    azimuthLayer = null
+  }
+}
+
 // Watch selection to pan
 watch(
   () => store.selectedMMSI,
@@ -1656,6 +1757,7 @@ watch(
     clearDensity()
     clearSimplifiedTrajectory()
     clearCompanions()
+    clearAzimuthLayer()
     if (mmsi && map) {
       const ship = store.ships.find((s) => s.mmsi === mmsi)
       if (ship) {
@@ -1779,6 +1881,18 @@ watch(
   (pair) => {
     if (pair) {
       highlightCompanionPair(pair)
+    }
+  },
+)
+
+// Watch Azimuth Analysis result
+watch(
+  () => store.azimuthResult,
+  (result) => {
+    if (result) {
+      renderAzimuthAnalysis()
+    } else {
+      clearAzimuthLayer()
     }
   },
 )
