@@ -63,8 +63,8 @@ class BTTreeQuery:
                         result.append(tid)
         else:
             # 内部节点：暂时禁用方向剪枝，确保正确性
-            # 原因：方向剪枝有边界条件 bug，导致数据丢失
-            # 后续：使用保守策略重新实现
+            # 原因：方向剪枝在查询范围与切分线关系复杂时可能丢失数据
+            # 特别是当子树的MBB跨越切分线时
             self._range_query_recursive(node.left, query_mbb, result)
             self._range_query_recursive(node.right, query_mbb, result)
     

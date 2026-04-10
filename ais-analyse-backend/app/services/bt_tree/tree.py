@@ -33,9 +33,9 @@ class BTTree:
         cfbc_config = cfbc_config or {}
         if use_cfbc:
             # 使用优化的 CFBM（采样加速）
-            # 默认 λ=0.5 (论文推荐用于 Geolife/Porto 数据集)
+            # 默认 λ=0.25 (实验验证查询性能最优)
             if 'lambda_param' not in cfbc_config:
-                cfbc_config['lambda_param'] = 0.5
+                cfbc_config['lambda_param'] = 0.25
             self.split_policy = CFBMSplitPolicy(**cfbc_config)
         else:
             self.split_policy = MedianSplitPolicy()

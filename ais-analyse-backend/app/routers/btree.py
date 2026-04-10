@@ -65,8 +65,8 @@ class CFBMConfig(BaseModel):
     - Geolife/Porto 数据集: λ = 0.5
     - T-Drive 数据集: λ = 0.25
     """
-    lambda_param: float = Field(default=0.5, ge=0.0, le=1.0, 
-                               description="数据偏斜与段增长的平衡参数 λ（默认0.5）")
+    lambda_param: float = Field(default=0.25, ge=0.0, le=1.0, 
+                               description="数据偏斜与段增长的平衡参数 λ（默认0.25，查询最优）")
     n_candidates: int = Field(default=5, ge=3, le=10, description="候选切分数（默认5，减少计算量）")
     sample_size: int = Field(default=200, ge=50, le=500, description="成本计算采样数（默认200，加速80%）")
     use_query_skew: bool = Field(default=False, description="是否启用查询偏斜计算（默认关闭，更快）")
